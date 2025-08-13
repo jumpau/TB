@@ -20,7 +20,7 @@ import shutil
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Callable, Any
-
+from typing import Union
 from hypy_utils import ensure_dir, md5
 from hypy_utils.file_utils import escape_filename
 from pyrogram import types, Client

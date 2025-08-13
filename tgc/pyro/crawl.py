@@ -1,7 +1,7 @@
 import argparse
 import asyncio
 from pathlib import Path
-
+from typing import Union
 from PIL import Image
 from hypy_utils import printc, json_stringify, write
 from hypy_utils.dict_utils import remove_keys

@@ -41,6 +41,30 @@ def get_user_name(user: User) -> str:
         name += " " + user.last_name
     return name
 
+def validate_chat_id(chat_id_str) -> Union[str, int]:
+    """
+    验证并转换聊天ID
+    支持以下格式：
+    - 数字ID: -1001234567890
+    - 用户名: @channelname 或 channelname
+    """
+    if isinstance(chat_id_str, int):
+        return chat_id_str
+    
+    chat_id_str = str(chat_id_str).strip()
+    
+    # 如果是用户名格式
+    if chat_id_str.startswith('@'):
+        return chat_id_str[1:]  # 移除@符号
+    elif not chat_id_str.lstrip('-').isdigit():
+        return chat_id_str  # 返回用户名
+    
+    # 如果是数字ID
+    try:
+        return int(chat_id_str)
+    except ValueError:
+        raise ValueError(f"Invalid chat_id format: {chat_id_str}")
+
 
 async def process_message(msg: Message, path: Path, export: dict) -> dict:
     media_path = path / "media"
@@ -133,16 +157,43 @@ async def download_custom_emojis(msgs: list[Message], results: list[dict], path:
                                               f'<i class="custom-emoji" emoji-src="{op}">')
 
 
-async def process_chat(chat_id: int, path: Path, export: dict):
-    chat: Chat = await app.get_chat(chat_id)
-    printc(f"&aChat obtained. Chat name: {chat.title} | Type: {chat.type} | ID: {chat.id}")
+async def process_chat(chat_id_input, path: Path, export: dict):
+    try:
+        # 验证并转换聊天ID
+        chat_id = validate_chat_id(chat_id_input)
+        printc(f"&aTrying to access chat: {chat_id}")
+        
+        chat: Chat = await app.get_chat(chat_id)
+        printc(f"&aChat obtained. Chat name: {chat.title} | Type: {chat.type} | ID: {chat.id}")
+    except ValueError as e:
+        if "Peer id invalid" in str(e):
+            printc(f"&cError: Invalid chat ID format: {chat_id_input}")
+            printc(f"&cPlease check your chat_id in the config file.")
+            printc(f"&cFor channels, use the channel username (without @) or the correct numeric ID.")
+            return
+        else:
+            raise
+    except KeyError as e:
+        if "ID not found" in str(e):
+            printc(f"&cError: Chat ID {chat_id_input} not found.")
+            printc(f"&cPossible reasons:")
+            printc(f"&c  1. The bot doesn't have access to this chat")
+            printc(f"&c  2. The chat doesn't exist or has been deleted")
+            printc(f"&c  3. The chat ID is incorrect")
+            printc(f"&cTry adding the bot to the chat first, or check the chat ID.")
+            return
+        else:
+            raise
+    except Exception as e:
+        printc(f"&cError accessing chat {chat_id_input}: {e}")
+        return
 
     # Crawl 200 messages each request
     print("Crawling channel posts...")
     msgs = []
     for i in range(999):
-        start_idx = i * 200 + 1
-        end_idx = start_idx + 200
+        start_idx = i * 20 + 1
+        end_idx = start_idx + 20
 
         additional_msgs = await app.get_messages(chat.id, range(start_idx, end_idx))
         additional_msgs = [m for m in additional_msgs if not m.empty]
@@ -174,7 +225,7 @@ async def run_app():
     me: User = await app.get_me()
     printc(f"&aLogin success! ID: {me.id} | is_bot: {me.is_bot}")
     for export in cfg.exports:
-        await process_chat(int(export["chat_id"]), Path(export["path"]), export)
+        await process_chat(export["chat_id"], Path(export["path"]), export)
 
 
 cfg: Config

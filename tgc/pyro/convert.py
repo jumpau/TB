@@ -64,6 +64,8 @@ def convert_text(text: str, entities: list[Any]) -> str:
     """
     # Pyrogram的surrogates工具可省略，直接处理字符串
     entities_offsets = []
+    if entities is None:
+        entities = []
     for entity in entities:
         start = entity.offset
         end = start + entity.length

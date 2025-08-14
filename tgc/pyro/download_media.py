@@ -38,8 +38,6 @@ from hypy_utils.file_utils import escape_filename
 from telethon.sync import TelegramClient
 from telethon.tl.types import Message, DocumentAttributeSticker
 from telethon.errors import FloodWaitError
-from telethon.sync import TelegramClient
-from telethon.tl.types import Message
 
 def guess_ext(client: TelegramClient, mime_type: str | None, file_name: str = None) -> str:
     # 优先用文件名后缀

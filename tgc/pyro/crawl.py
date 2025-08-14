@@ -193,8 +193,9 @@ async def process_chat(chat_id_input, path: Path, export: dict, client):
     for i in range(999):
         start_idx = i * 20 + 1
         end_idx = start_idx + 20
-        additional_msgs = await client.get_messages(chat.id, range(start_idx, end_idx))
-        additional_msgs = [m for m in additional_msgs if not m.empty]
+        # Telethon get_messages 参数应为 limit 和 offset_id
+        additional_msgs = await client.get_messages(chat.id, limit=20, offset_id=start_idx)
+        additional_msgs = [m for m in additional_msgs if not getattr(m, 'empty', False)]
         msgs += additional_msgs
         print(f"> {len(msgs)} total messages... (up to ID #{end_idx - 1})")
         if not additional_msgs:

@@ -194,9 +194,9 @@ async def process_chat(chat_id_input, path: Path, export: dict, client):
     print("Crawling channel posts...")
     msgs = []
     last_id = 0
-    max_total = export.get('max_total', 1000)  # 可自定义最大爬取数
+    max_total = 200  # 每次最多执行200个有效贴文
     while len(msgs) < max_total:
-        batch = await client.get_messages(chat.id, limit=100, offset_id=last_id)
+        batch = await client.get_messages(chat.id, limit=min(100, max_total - len(msgs)), offset_id=last_id)
         batch = [m for m in batch if hasattr(m, 'id') and not getattr(m, 'empty', False)]
         if not batch:
             print("> No more valid messages, we're done.")

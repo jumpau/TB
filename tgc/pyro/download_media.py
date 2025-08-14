@@ -91,6 +91,9 @@ async def download_media(
         return p
     print(f"Downloading {p.name}...")
     try:
+        # 下载前适当延迟，避免被 Telegram 限速或封号
+        import random
+        await asyncio.sleep(random.uniform(0.5, 2.0))
         await client.download_media(message, file=p)
         return p
     except FloodWaitError as e:

@@ -248,9 +248,13 @@ async def process_chat(chat_id_input, path: Path, export: dict, client):
                     media_files.append(info)
             if not caption and (getattr(m, 'message', None) or getattr(m, 'text', None)):
                 caption = effective_text(m)
+        # 取该组所有消息的最早日期作为贴文日期
+        group_dates = [getattr(m, 'date', None) for m in group if getattr(m, 'date', None)]
+        post_date = min(group_dates) if group_dates else None
         results.append({
             'id': gid,
             'grouped_id': gid,
+            'date': post_date,
             'media_files': media_files,
             'caption': caption
         })

@@ -72,21 +72,22 @@ async def process_message(msg: Message, path: Path, export: dict, client):
     m = {
         "id": msg.id,
         "date": msg.date,
-        "type": 'service' if msg.service else None,
+        # Telethon 没有 service 属性，可用 is_service 或 type 判断
+        "type": 'service' if getattr(msg, 'is_service', False) else None,
         "text": effective_text(msg),
-        "author": msg.author_signature,
-        "views": msg.views,
-        "forwards": msg.forwards,
+        "author": getattr(msg, 'post_author', None),
+        "views": getattr(msg, 'views', None),
+        "forwards": getattr(msg, 'forwards', None),
         "forwarded_from": {
-            "name": get_user_name(msg.forward_from),
-            "url": f'https://t.me/{msg.forward_from.username}' if msg.forward_from.username else None,
-        } if msg.forward_from else {
-            "name": msg.forward_from_chat.title,
-        } if msg.forward_from_chat else {
-            "name": msg.forward_sender_name,
-        } if msg.forward_sender_name else None,
-        "media_group_id": msg.media_group_id,
-        "reply_id": msg.reply_to_message_id,
+            "name": get_user_name(getattr(msg, 'forward_from', None)) if getattr(msg, 'forward_from', None) else None,
+            "url": f'https://t.me/{getattr(msg.forward_from, "username", "")}' if getattr(msg, 'forward_from', None) and getattr(msg.forward_from, 'username', None) else None,
+        } if getattr(msg, 'forward_from', None) else {
+            "name": getattr(getattr(msg, 'forward_from_chat', None), 'title', None),
+        } if getattr(msg, 'forward_from_chat', None) else {
+            "name": getattr(msg, 'forward_sender_name', None),
+        } if getattr(msg, 'forward_sender_name', None) else None,
+        "media_group_id": getattr(msg, 'grouped_id', None),
+        "reply_id": getattr(msg, 'reply_to_msg_id', None),
         "file": convert_media_dict(msg)
     }
 
@@ -110,7 +111,8 @@ async def process_message(msg: Message, path: Path, export: dict, client):
         # Download the largest thumbnail
         if f.get('thumbs'):
             thumb: dict = max(f['thumbs'], key=lambda x: x['file_size'])
-            ext = guess_ext(client, FileId.decode(thumb['file_id']).file_type, None)
+            # Telethon 没有 FileId.decode，直接用 mime_type 判断扩展名
+            ext = guess_ext(client, thumb.get('mime_type', None))
             fp = await download_media(client, thumb['file_id'], directory=media_path,
                                       fname=fp.with_suffix(fp.suffix + f'_thumb{ext}').name)
             f['thumb'] = str(fp.absolute().relative_to(path.absolute()))
@@ -140,14 +142,14 @@ async def download_custom_emojis(msgs: list[Message], results: list[dict], path:
     orig_ids = list(ids)
 
     # Query stickers 200 ids at a time
-    stickers: list[Sticker] = []
+    stickers = []
     while ids:
         stickers += await client.get_custom_emoji_stickers(ids[:200])
         ids = ids[200:]
 
     # Download stickers
     for id, s in zip(orig_ids, stickers):
-        ext = guess_ext(client, FileId.decode(s.file_id).file_type, s.mime_type)
+        ext = guess_ext(client, getattr(s, 'mime_type', None))
         op = (await download_media(client, s, path / "emoji", f'{id}{ext}')).absolute().relative_to(path.absolute())
 
         # Replace sticker paths

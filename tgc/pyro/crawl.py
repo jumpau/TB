@@ -187,20 +187,20 @@ async def process_chat(chat_id_input, path: Path, export: dict, client):
         printc(f"&cError accessing chat {chat_id_input}: {e}")
         return
 
-    # Crawl 200 messages each request
+    # 持续爬取直到获取到有效消息或达到最大限制
     print("Crawling channel posts...")
     msgs = []
-    for i in range(999):
-        start_idx = i * 20 + 1
-        end_idx = start_idx + 20
-        # Telethon get_messages 参数应为 limit 和 offset_id
-        additional_msgs = await client.get_messages(chat.id, limit=20, offset_id=start_idx)
-        additional_msgs = [m for m in additional_msgs if not getattr(m, 'empty', False)]
-        msgs += additional_msgs
-        print(f"> {len(msgs)} total messages... (up to ID #{end_idx - 1})")
-        if not additional_msgs:
-            print("> All 200 messages are empty, we're done.")
+    last_id = 0
+    max_total = export.get('max_total', 1000)  # 可自定义最大爬取数
+    while len(msgs) < max_total:
+        batch = await client.get_messages(chat.id, limit=100, offset_id=last_id)
+        batch = [m for m in batch if hasattr(m, 'id') and not getattr(m, 'empty', False)]
+        if not batch:
+            print("> No more valid messages, we're done.")
             break
+        msgs += batch
+        last_id = batch[-1].id if batch else last_id
+        print(f"> {len(msgs)} total messages... (last batch up to ID #{last_id})")
 
     # print(msgs)
     results = [await process_message(m, path, export, client) for m in msgs]

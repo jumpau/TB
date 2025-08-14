@@ -45,11 +45,21 @@ def guess_ext(client: TelegramClient, mime_type: Optional[str], file_name: Optio
         'image/png': '.png',
         'image/gif': '.gif',
         'image/webp': '.webp',
+        'image/bmp': '.bmp',
+        'image/tiff': '.tif',
+        'image/x-icon': '.ico',
         'video/mp4': '.mp4',
         'video/x-matroska': '.mkv',
+        'video/quicktime': '.mov',
+        'video/webm': '.webm',
+        'video/x-msvideo': '.avi',
         'audio/mpeg': '.mp3',
         'audio/ogg': '.ogg',
         'audio/wav': '.wav',
+        'audio/aac': '.aac',
+        'audio/flac': '.flac',
+        'audio/mp4': '.m4a',
+        'audio/x-ms-wma': '.wma',
         'application/pdf': '.pdf',
         'application/zip': '.zip',
         'application/x-tgsticker': '.tgs',
@@ -61,6 +71,11 @@ def guess_ext(client: TelegramClient, mime_type: Optional[str], file_name: Optio
         'application/vnd.openxmlformats-officedocument.presentationml.presentation': '.pptx',
         'text/plain': '.txt',
         'text/html': '.html',
+        'application/x-rar-compressed': '.rar',
+        'application/x-7z-compressed': '.7z',
+        'application/x-tar': '.tar',
+        'application/x-bzip2': '.bz2',
+        'application/x-gzip': '.gz',
     }
     if mime_type and mime_type in mime_map:
         return mime_map[mime_type]
@@ -76,6 +91,15 @@ def guess_ext(client: TelegramClient, mime_type: Optional[str], file_name: Optio
         ext = Path(file_name).suffix
         if ext and len(ext) > 8:
             return ext[-5:]
+    # 输出未识别 bin 文件的 message 信息，便于后续完善
+    import inspect
+    frame = inspect.currentframe()
+    outer_frames = inspect.getouterframes(frame)
+    for f in outer_frames:
+        if 'message' in f.frame.f_locals:
+            msg = f.frame.f_locals['message']
+            print(f"[未识别格式] message.id={getattr(msg, 'id', None)} mime_type={mime_type} file_name={file_name} media={getattr(msg, 'media', None)}")
+            break
     return '.bin'
 
 def has_media(message: Message) -> Optional[object]:

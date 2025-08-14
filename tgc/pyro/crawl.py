@@ -137,8 +137,16 @@ async def process_message(msg: Message, path: Path, export: dict, client):
 async def download_custom_emojis(msgs: list[Message], results: list[dict], path: Path, client):
     print("Downloading custom emojis...")
     # List custom emoji ids
-    ids = {e.custom_emoji_id for msg in msgs if msg.text and msg.text.entities for e in msg.text.entities if e.custom_emoji_id}
-    ids.update({e.custom_emoji_id for msg in msgs if msg.caption_entities for e in msg.caption_entities if e.custom_emoji_id})
+    ids = set()
+    for msg in msgs:
+        if hasattr(msg, 'entities') and msg.entities:
+            for e in msg.entities:
+                if hasattr(e, 'custom_emoji_id') and e.custom_emoji_id:
+                    ids.add(e.custom_emoji_id)
+        if hasattr(msg, 'caption_entities') and msg.caption_entities:
+            for e in msg.caption_entities:
+                if hasattr(e, 'custom_emoji_id') and e.custom_emoji_id:
+                    ids.add(e.custom_emoji_id)
     ids = list(ids)
     orig_ids = list(ids)
 
@@ -194,7 +202,7 @@ async def process_chat(chat_id_input, path: Path, export: dict, client):
     print("Crawling channel posts...")
     msgs = []
     last_id = 0
-    max_total = 20  # 每次最多执行200个有效贴文
+    max_total = 10  # 每次最多执行10个有效贴文
     while len(msgs) < max_total:
         batch = await client.get_messages(chat.id, limit=min(100, max_total - len(msgs)), offset_id=last_id)
         batch = [m for m in batch if hasattr(m, 'id') and not getattr(m, 'empty', False)]
@@ -222,14 +230,24 @@ async def process_chat(chat_id_input, path: Path, export: dict, client):
         caption = None
         for m in group:
             if has_media(m):
-                # 下载所有媒体
                 fp, name = await download_media_urlsafe(client, m, directory=path/str(gid), max_file_size=int((export.get('size_limit_mb') or 0) * 1000_000))
                 if fp:
-                    media_files.append(str(fp))
-            # 只取有 text 的那条作为附言
+                    info = {
+                        'path': str(fp),
+                        'id': getattr(m, 'id', None),
+                        'date': getattr(m, 'date', None),
+                        'caption': effective_text(m),
+                    }
+                    # 图片 width/height
+                    try:
+                        from PIL import Image
+                        img = Image.open(fp)
+                        info['width'], info['height'] = img.size
+                    except Exception:
+                        pass
+                    media_files.append(info)
             if not caption and (getattr(m, 'message', None) or getattr(m, 'text', None)):
                 caption = effective_text(m)
-        # 组结果（不保存为txt，只组合到结构）
         results.append({
             'grouped_id': gid,
             'media_files': media_files,

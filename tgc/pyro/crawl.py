@@ -23,15 +23,16 @@ def effective_text(msg: Message) -> str:
     """
     Get effective text of a message in HTML
     """
-    if msg.text:
-        return convert_text(msg.text, msg.text.entities)
-    if msg.caption:
-        return convert_text(msg.caption, msg.caption.entities)
-    if msg.service:
-        return str(msg.service).split(".")[-1].replace("_", " ").capitalize()
+    if getattr(msg, 'message', None):
+        return convert_text(msg.message, getattr(msg, 'entities', []))
+    if getattr(msg, 'text', None):
+        return convert_text(msg.text, getattr(msg, 'entities', []))
+    # Telethon 没有 caption 属性，图片/视频/文件消息文本也在 message 字段
+    if getattr(msg, 'action', None):
+        return str(msg.action).split(".")[-1].replace("_", " ").capitalize()
 
 
-def _download_media_helper(args: list) -> Path:
+def _download_media_helper(client, args: list) -> Path:
     return asyncio.run(download_media(client, *args))
 
 

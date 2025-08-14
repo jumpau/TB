@@ -1,3 +1,15 @@
+def get_file_name(client: TelegramClient, message: Message) -> str:
+    media = has_media(message)
+    if not media:
+        return None
+    mime_type = getattr(media, 'mime_type', None)
+    file_name = getattr(media, 'file_name', None)
+    ext = guess_ext(client, mime_type, file_name)
+    if file_name:
+        file_name = escape_filename(Path(file_name).stem + ext)
+    else:
+        file_name = escape_filename(f"media_{getattr(message, 'id', '')}{ext}")
+    return file_name
 #  Pyrogram - Telegram MTProto API Client Library for Python
 #  Copyright (C) 2017-present Dan <https://github.com/delivrance>
 #
@@ -28,27 +40,44 @@ from telethon.tl.types import Message, DocumentAttributeSticker
 from telethon.errors import FloodWaitError
 
 
-def guess_ext(client: TelegramClient, mime_type: str | None) -> str:
-    # 优先用文件名后缀，其次用 mime_type 判断
-    if hasattr(client, 'file_name') and client.file_name:
-        ext = Path(client.file_name).suffix
+def guess_ext(client: TelegramClient, mime_type: str | None, file_name: str = None) -> str:
+    # 优先用文件名后缀
+    if file_name:
+        ext = Path(file_name).suffix
         if ext:
             return ext
+    # 常见 mime_type 映射表
+    mime_map = {
+        'image/jpeg': '.jpg',
+        'image/png': '.png',
+        'image/gif': '.gif',
+        'image/webp': '.webp',
+        'video/mp4': '.mp4',
+        'video/x-matroska': '.mkv',
+        'audio/mpeg': '.mp3',
+        'audio/ogg': '.ogg',
+        'audio/wav': '.wav',
+        'application/pdf': '.pdf',
+        'application/zip': '.zip',
+        'application/x-tgsticker': '.tgs',
+        'application/msword': '.doc',
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document': '.docx',
+        'application/vnd.ms-excel': '.xls',
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': '.xlsx',
+        'application/vnd.ms-powerpoint': '.ppt',
+        'application/vnd.openxmlformats-officedocument.presentationml.presentation': '.pptx',
+        'text/plain': '.txt',
+        'text/html': '.html',
+    }
+    if mime_type and mime_type in mime_map:
+        return mime_map[mime_type]
     if mime_type:
         if mime_type.startswith('image/'):
-            if mime_type == 'image/webp':
-                return '.webp'
             return '.jpg'
         elif mime_type.startswith('video/'):
             return '.mp4'
-        elif mime_type == 'application/x-tgsticker':
-            return '.tgs'
-        elif mime_type == 'audio/ogg':
-            return '.ogg'
-        elif mime_type == 'audio/mpeg':
+        elif mime_type.startswith('audio/'):
             return '.mp3'
-        elif mime_type == 'application/zip':
-            return '.zip'
     return '.bin'
 
 
@@ -57,21 +86,16 @@ def has_media(message: Message) -> object | None:
     return getattr(message, 'media', None)
 
 
-def get_file_name(client: TelegramClient, message: Message) -> str:
     media = has_media(message)
     if not media:
         return None
     mime_type = getattr(media, 'mime_type', None)
     file_name = getattr(media, 'file_name', None)
+    ext = guess_ext(client, mime_type, file_name)
     if file_name:
-        ext = Path(file_name).suffix
-        if not ext:
-            ext = guess_ext(client, mime_type)
         file_name = escape_filename(Path(file_name).stem + ext)
     else:
-        ext = guess_ext(client, mime_type)
-        file_name = f"media_{getattr(message, 'id', '')}{ext}"
-        file_name = escape_filename(file_name)
+        file_name = escape_filename(f"media_{getattr(message, 'id', '')}{ext}")
     return file_name
 
 

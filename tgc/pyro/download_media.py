@@ -29,9 +29,15 @@ from telethon.errors import FloodWaitError
 
 
 def guess_ext(client: TelegramClient, mime_type: str | None) -> str:
-    # Telethon 没有 file_type 枚举，需根据 mime_type 判断
+    # 优先用文件名后缀，其次用 mime_type 判断
+    if hasattr(client, 'file_name') and client.file_name:
+        ext = Path(client.file_name).suffix
+        if ext:
+            return ext
     if mime_type:
         if mime_type.startswith('image/'):
+            if mime_type == 'image/webp':
+                return '.webp'
             return '.jpg'
         elif mime_type.startswith('video/'):
             return '.mp4'
@@ -43,9 +49,7 @@ def guess_ext(client: TelegramClient, mime_type: str | None) -> str:
             return '.mp3'
         elif mime_type == 'application/zip':
             return '.zip'
-        elif mime_type == 'image/webp':
-            return '.webp'
-    return '.unknown'
+    return '.bin'
 
 
 def has_media(message: Message) -> object | None:
@@ -59,12 +63,15 @@ def get_file_name(client: TelegramClient, message: Message) -> str:
         return None
     mime_type = getattr(media, 'mime_type', None)
     file_name = getattr(media, 'file_name', None)
-    if not file_name:
-        file_name = f"media_{getattr(message, 'id', '')}"
-        file_name += guess_ext(client, mime_type)
-    file_name = escape_filename(file_name)
-    if '.' not in file_name:
-        file_name += guess_ext(client, mime_type)
+    if file_name:
+        ext = Path(file_name).suffix
+        if not ext:
+            ext = guess_ext(client, mime_type)
+        file_name = escape_filename(Path(file_name).stem + ext)
+    else:
+        ext = guess_ext(client, mime_type)
+        file_name = f"media_{getattr(message, 'id', '')}{ext}"
+        file_name = escape_filename(file_name)
     return file_name
 
 

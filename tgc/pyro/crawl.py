@@ -249,6 +249,7 @@ async def process_chat(chat_id_input, path: Path, export: dict, client):
             if not caption and (getattr(m, 'message', None) or getattr(m, 'text', None)):
                 caption = effective_text(m)
         results.append({
+            'id': gid,
             'grouped_id': gid,
             'media_files': media_files,
             'caption': caption

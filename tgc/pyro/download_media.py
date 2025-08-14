@@ -1,3 +1,14 @@
+import asyncio
+import shutil
+from tempfile import TemporaryDirectory
+from telethon.sync import TelegramClient
+from telethon.tl.types import Message
+from pathlib import Path
+from typing import Optional, Dict
+from hypy_utils import ensure_dir, md5
+from hypy_utils.file_utils import escape_filename
+from telethon.errors import FloodWaitError
+
 def get_file_name(client: TelegramClient, message: Message) -> str:
     media = has_media(message)
     if not media:
@@ -10,36 +21,8 @@ def get_file_name(client: TelegramClient, message: Message) -> str:
     else:
         file_name = escape_filename(f"media_{getattr(message, 'id', '')}{ext}")
     return file_name
-#  Pyrogram - Telegram MTProto API Client Library for Python
-#  Copyright (C) 2017-present Dan <https://github.com/delivrance>
-#
-#  This file is part of Pyrogram.
-#
-#  Pyrogram is free software: you can redistribute it and/or modify
-#  it under the terms of the GNU Lesser General Public License as published
-#  by the Free Software Foundation, either version 3 of the License, or
-#  (at your option) any later version.
-#
-#  Pyrogram is distributed in the hope that it will be useful,
-#  but WITHOUT ANY WARRANTY; without even the implied warranty of
-#  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-#  GNU Lesser General Public License for more details.
-#
-#  You should have received a copy of the GNU Lesser General Public License
-#  along with Pyrogram.  If not, see <http://www.gnu.org/licenses/>.
-import asyncio
-import shutil
-from pathlib import Path
-from tempfile import TemporaryDirectory
-from typing import Callable, Any
-from typing import Union
-from hypy_utils import ensure_dir, md5
-from hypy_utils.file_utils import escape_filename
-from telethon.sync import TelegramClient
-from telethon.tl.types import Message, DocumentAttributeSticker
-from telethon.errors import FloodWaitError
 
-def guess_ext(client: TelegramClient, mime_type: str | None, file_name: str = None) -> str:
+def guess_ext(client: TelegramClient, mime_type: Optional[str], file_name: Optional[str] = None) -> str:
     # 优先用文件名后缀
     if file_name:
         ext = Path(file_name).suffix
@@ -79,35 +62,20 @@ def guess_ext(client: TelegramClient, mime_type: str | None, file_name: str = No
             return '.mp3'
     return '.bin'
 
-
-def has_media(message: Message) -> object | None:
+def has_media(message: Message) -> Optional[object]:
     # Telethon Message 直接判断 media 字段
     return getattr(message, 'media', None)
 
-
-    media = has_media(message)
-    if not media:
-        return None
-    mime_type = getattr(media, 'mime_type', None)
-    file_name = getattr(media, 'file_name', None)
-    ext = guess_ext(client, mime_type, file_name)
-    if file_name:
-        file_name = escape_filename(Path(file_name).stem + ext)
-    else:
-        file_name = escape_filename(f"media_{getattr(message, 'id', '')}{ext}")
-    return file_name
-
-
 async def download_media(
-        client: TelegramClient,
-        message: Message,
-        directory: str | Path = "media",
-        fname: str | None = None,
-        progress: Callable = None,
-        progress_args: tuple = (),
-        max_file_size: int = 0
-) -> Path:
-    directory: Path = ensure_dir(directory)
+    client: TelegramClient,
+    message: Message,
+    directory: str | Path = "media",
+    fname: Optional[str] = None,
+    progress: Optional[callable] = None,
+    progress_args: tuple = (),
+    max_file_size: int = 0
+) -> Optional[Path]:
+    directory = ensure_dir(directory)
     media = has_media(message)
     if not media:
         return None
@@ -131,16 +99,15 @@ async def download_media(
         await asyncio.sleep(e.seconds)
         return await download_media(client, message, directory, fname, progress, progress_args, max_file_size)
 
-
 async def download_media_urlsafe(
     client: TelegramClient,
     message: Message,
     directory: str | Path = "media",
-    fname: str | None = None,
-    progress: Callable = None,
+    fname: Optional[str] = None,
+    progress: Optional[callable] = None,
     progress_args: tuple = (),
     max_file_size: int = 0
-) -> tuple[Path, str]:
+) -> tuple:
     file_name = get_file_name(client, message)
     renamed = str(getattr(message, 'id', '')) + Path(file_name).suffix
     return await download_media(client, message, directory, renamed, progress, progress_args, max_file_size), file_name

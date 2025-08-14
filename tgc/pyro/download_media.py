@@ -23,139 +23,91 @@ from typing import Callable, Any
 from typing import Union
 from hypy_utils import ensure_dir, md5
 from hypy_utils.file_utils import escape_filename
-from pyrogram import types, Client
-from pyrogram.errors import FloodWait
-from pyrogram.file_id import FileId, FileType, PHOTO_TYPES
-from pyrogram.types import Message
+from telethon.sync import TelegramClient
+from telethon.tl.types import Message, DocumentAttributeSticker
+from telethon.errors import FloodWaitError
 
 
-def guess_ext(client: Client, file_type: int, mime_type: str | None) -> str:
-    guessed_extension = client.guess_extension(mime_type) if mime_type else None
-
-    if file_type in PHOTO_TYPES:
-        return ".jpg"
-    elif file_type == FileType.VOICE:
-        return guessed_extension or ".ogg"
-    elif file_type in (FileType.VIDEO, FileType.ANIMATION, FileType.VIDEO_NOTE):
-        return guessed_extension or ".mp4"
-    elif file_type == FileType.DOCUMENT:
-        return guessed_extension or ".zip"
-    elif file_type == FileType.STICKER:
-        return guessed_extension or ".webp"
-    elif file_type == FileType.AUDIO:
-        return guessed_extension or ".mp3"
-    else:
-        return ".unknown"
-
-
-def has_media(message: Message) -> Any | None:
-    available_media = ("audio", "document", "photo", "sticker", "animation", "video", "voice", "video_note",
-                       "new_chat_photo")
-
-    if isinstance(message, types.Message):
-        for kind in available_media:
-            media = getattr(message, kind, None)
-
-            if media is not None:
-                break
-        else:
-            return None
-    else:
-        media = message
-
-    return media
+def guess_ext(client: TelegramClient, mime_type: str | None) -> str:
+    # Telethon 没有 file_type 枚举，需根据 mime_type 判断
+    if mime_type:
+        if mime_type.startswith('image/'):
+            return '.jpg'
+        elif mime_type.startswith('video/'):
+            return '.mp4'
+        elif mime_type == 'application/x-tgsticker':
+            return '.tgs'
+        elif mime_type == 'audio/ogg':
+            return '.ogg'
+        elif mime_type == 'audio/mpeg':
+            return '.mp3'
+        elif mime_type == 'application/zip':
+            return '.zip'
+        elif mime_type == 'image/webp':
+            return '.webp'
+    return '.unknown'
 
 
-def get_file_name(client: Client, message: Message) -> tuple[str, FileId]:
-    """
-    Guess a file name of a message media
+def has_media(message: Message) -> object | None:
+    # Telethon Message 直接判断 media 字段
+    return getattr(message, 'media', None)
 
-    :param client: Client
-    :param message: Message or media
-    :return: File name, file id object
-    """
+
+def get_file_name(client: TelegramClient, message: Message) -> str:
     media = has_media(message)
-
-    if isinstance(media, str):
-        file_id_str = media
-    else:
-        file_id_str = media.file_id
-
-    file_id_obj = FileId.decode(file_id_str)
-    file_type = file_id_obj.file_type
-
-    mime_type = getattr(media, "mime_type", "")
-    date = getattr(media, "date", None)
-
-    file_name = getattr(media, "file_name", None)
-
+    if not media:
+        return None
+    mime_type = getattr(media, 'mime_type', None)
+    file_name = getattr(media, 'file_name', None)
     if not file_name:
-        file_name = f"{FileType(file_type).name.lower()}"
-        if date:
-            file_name += f"_{date.strftime('%Y-%m-%d_%H-%M-%S')}"
-        file_name += guess_ext(client, file_type, mime_type)
+        file_name = f"media_{getattr(message, 'id', '')}"
+        file_name += guess_ext(client, mime_type)
     file_name = escape_filename(file_name)
-
-    # Sometimes, if the file name is too long, the file extension is stripped by telegram api
-    # We need to add it back
     if '.' not in file_name:
-        file_name += guess_ext(client, file_type, mime_type)
-
-    return file_name, file_id_obj
+        file_name += guess_ext(client, mime_type)
+    return file_name
 
 
 async def download_media(
-        client: Client,
-        message: types.Message,
+        client: TelegramClient,
+        message: Message,
         directory: str | Path = "media",
         fname: str | None = None,
         progress: Callable = None,
         progress_args: tuple = (),
         max_file_size: int = 0
-) -> Path | Path:
+) -> Path:
     directory: Path = ensure_dir(directory)
-
     media = has_media(message)
-
-    # Check filesize
-    fsize = getattr(media, 'file_size', 0)
+    if not media:
+        return None
+    fsize = getattr(media, 'size', 0)
     if max_file_size and fsize > max_file_size:
         print(f"Skipped {fname} because of file size limit ({fsize} > {max_file_size})")
         return None
-
-    file_name, file_id_obj = get_file_name(client, message)
-    file_name = fname or file_name
-
+    file_name = fname or get_file_name(client, message)
     p = directory / file_name
     if p.exists():
         return p
-
     print(f"Downloading {p.name}...")
-
-    while True:
-        try:
-            return Path(await client.handle_download(
-                (file_id_obj, directory, file_name, False, fsize, progress, progress_args)
-            ))
-        except FloodWait as e:
-            print(f"Sleeping for {e.value} seconds...")
-            await asyncio.sleep(e.value)
+    try:
+        await client.download_media(message, file=p)
+        return p
+    except FloodWaitError as e:
+        print(f"Sleeping for {e.seconds} seconds...")
+        await asyncio.sleep(e.seconds)
+        return await download_media(client, message, directory, fname, progress, progress_args, max_file_size)
 
 
 async def download_media_urlsafe(
-        client: Client,
-        message: types.Message,
-        directory: str | Path = "media",
-        fname: str | None = None,
-        progress: Callable = None,
-        progress_args: tuple = (),
-        max_file_size: int = 0
+    client: TelegramClient,
+    message: Message,
+    directory: str | Path = "media",
+    fname: str | None = None,
+    progress: Callable = None,
+    progress_args: tuple = (),
+    max_file_size: int = 0
 ) -> tuple[Path, str]:
-    """
-    Download media into a renamed file
-
-    :return: Renamed file path, original file name
-    """
-    file_name, file_id_obj = get_file_name(client, message)
-    renamed = str(message.id) + Path(file_name).suffix
+    file_name = get_file_name(client, message)
+    renamed = str(getattr(message, 'id', '')) + Path(file_name).suffix
     return await download_media(client, message, directory, renamed, progress, progress_args, max_file_size), file_name

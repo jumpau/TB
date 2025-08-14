@@ -13,8 +13,19 @@ def get_file_name(client: TelegramClient, message: Message) -> str:
     media = has_media(message)
     if not media:
         return None
+    # 优先从 attributes 获取真实文件名
+    file_name = None
     mime_type = getattr(media, 'mime_type', None)
-    file_name = getattr(media, 'file_name', None)
+    if hasattr(media, 'document') and hasattr(media.document, 'attributes'):
+        for attr in media.document.attributes:
+            if hasattr(attr, 'file_name'):
+                file_name = attr.file_name
+                break
+        if not mime_type:
+            mime_type = getattr(media.document, 'mime_type', None)
+    # 兜底 file_name
+    if not file_name:
+        file_name = getattr(media, 'file_name', None)
     ext = guess_ext(client, mime_type, file_name)
     if file_name:
         file_name = escape_filename(Path(file_name).stem + ext)
@@ -26,7 +37,7 @@ def guess_ext(client: TelegramClient, mime_type: Optional[str], file_name: Optio
     # 优先用文件名后缀
     if file_name:
         ext = Path(file_name).suffix
-        if ext:
+        if ext and len(ext) <= 8:
             return ext
     # 常见 mime_type 映射表
     mime_map = {
@@ -60,6 +71,11 @@ def guess_ext(client: TelegramClient, mime_type: Optional[str], file_name: Optio
             return '.mp4'
         elif mime_type.startswith('audio/'):
             return '.mp3'
+    # 兜底：如果 file_name 有点后缀但太长（如 .bin），只取最后 5 个字符
+    if file_name and '.' in file_name:
+        ext = Path(file_name).suffix
+        if ext and len(ext) > 8:
+            return ext[-5:]
     return '.bin'
 
 def has_media(message: Message) -> Optional[object]:

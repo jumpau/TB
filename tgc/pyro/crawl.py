@@ -5,9 +5,9 @@ from typing import Union
 from PIL import Image
 from hypy_utils import printc, json_stringify, write
 from hypy_utils.dict_utils import remove_keys
-from pyrogram import Client
-from pyrogram.file_id import FileId
-from pyrogram.types import User, Chat, Message, Sticker
+from telethon.sync import TelegramClient
+from telethon.sessions import StringSession
+from telethon.tl.types import User, Chat, Message, DocumentAttributeSticker
 
 from .config import load_config, Config
 from .consts import HTML
@@ -32,7 +32,7 @@ def effective_text(msg: Message) -> str:
 
 
 def _download_media_helper(args: list) -> Path:
-    return asyncio.run(download_media(app, *args))
+    return asyncio.run(download_media(client, *args))
 
 
 def get_user_name(user: User) -> str:
@@ -66,7 +66,7 @@ def validate_chat_id(chat_id_str) -> Union[str, int]:
         raise ValueError(f"Invalid chat_id format: {chat_id_str}")
 
 
-async def process_message(msg: Message, path: Path, export: dict) -> dict:
+async def process_message(msg: Message, path: Path, export: dict, client):
     media_path = path / "media"
 
     m = {
@@ -94,7 +94,7 @@ async def process_message(msg: Message, path: Path, export: dict) -> dict:
     f = m.get('file')
 
     async def dl_media():
-        fp, name = await download_media_urlsafe(app, msg, directory=media_path,
+        fp, name = await download_media_urlsafe(client, msg, directory=media_path,
                                                 max_file_size=int((export.get('size_limit_mb') or 0) * 1000_000))
         if fp is None:
             return
@@ -110,8 +110,8 @@ async def process_message(msg: Message, path: Path, export: dict) -> dict:
         # Download the largest thumbnail
         if f.get('thumbs'):
             thumb: dict = max(f['thumbs'], key=lambda x: x['file_size'])
-            ext = guess_ext(app, FileId.decode(thumb['file_id']).file_type, None)
-            fp = await download_media(app, thumb['file_id'], directory=media_path,
+            ext = guess_ext(client, FileId.decode(thumb['file_id']).file_type, None)
+            fp = await download_media(client, thumb['file_id'], directory=media_path,
                                       fname=fp.with_suffix(fp.suffix + f'_thumb{ext}').name)
             f['thumb'] = str(fp.absolute().relative_to(path.absolute()))
             del f['thumbs']
@@ -131,7 +131,7 @@ async def process_message(msg: Message, path: Path, export: dict) -> dict:
     return remove_keys(remove_nones(m), {'file_id', 'file_unique_id'})
 
 
-async def download_custom_emojis(msgs: list[Message], results: list[dict], path: Path):
+async def download_custom_emojis(msgs: list[Message], results: list[dict], path: Path, client):
     print("Downloading custom emojis...")
     # List custom emoji ids
     ids = {e.custom_emoji_id for msg in msgs if msg.text and msg.text.entities for e in msg.text.entities if e.custom_emoji_id}
@@ -142,13 +142,13 @@ async def download_custom_emojis(msgs: list[Message], results: list[dict], path:
     # Query stickers 200 ids at a time
     stickers: list[Sticker] = []
     while ids:
-        stickers += await app.get_custom_emoji_stickers(ids[:200])
+        stickers += await client.get_custom_emoji_stickers(ids[:200])
         ids = ids[200:]
 
     # Download stickers
     for id, s in zip(orig_ids, stickers):
-        ext = guess_ext(app, FileId.decode(s.file_id).file_type, s.mime_type)
-        op = (await download_media(app, s, path / "emoji", f'{id}{ext}')).absolute().relative_to(path.absolute())
+        ext = guess_ext(client, FileId.decode(s.file_id).file_type, s.mime_type)
+        op = (await download_media(client, s, path / "emoji", f'{id}{ext}')).absolute().relative_to(path.absolute())
 
         # Replace sticker paths
         for r in results:
@@ -157,13 +157,12 @@ async def download_custom_emojis(msgs: list[Message], results: list[dict], path:
                                               f'<i class="custom-emoji" emoji-src="{op}">')
 
 
-async def process_chat(chat_id_input, path: Path, export: dict):
+async def process_chat(chat_id_input, path: Path, export: dict, client):
     try:
         # 验证并转换聊天ID
         chat_id = validate_chat_id(chat_id_input)
         printc(f"&aTrying to access chat: {chat_id}")
-        
-        chat: Chat = await app.get_chat(chat_id)
+        chat: Chat = await client.get_chat(chat_id)
         printc(f"&aChat obtained. Chat name: {chat.title} | Type: {chat.type} | ID: {chat.id}")
     except ValueError as e:
         if "Peer id invalid" in str(e):
@@ -194,19 +193,17 @@ async def process_chat(chat_id_input, path: Path, export: dict):
     for i in range(999):
         start_idx = i * 20 + 1
         end_idx = start_idx + 20
-
-        additional_msgs = await app.get_messages(chat.id, range(start_idx, end_idx))
+        additional_msgs = await client.get_messages(chat.id, range(start_idx, end_idx))
         additional_msgs = [m for m in additional_msgs if not m.empty]
         msgs += additional_msgs
         print(f"> {len(msgs)} total messages... (up to ID #{end_idx - 1})")
-
         if not additional_msgs:
             print("> All 200 messages are empty, we're done.")
             break
 
     # print(msgs)
-    results = [await process_message(m, path, export) for m in msgs]
-    await download_custom_emojis(msgs, results, path)
+    results = [await process_message(m, path, export, client) for m in msgs]
+    await download_custom_emojis(msgs, results, path, client)
 
     # Group messages
     results = group_msgs(results)
@@ -221,26 +218,26 @@ async def process_chat(chat_id_input, path: Path, export: dict):
     printc(f"&aDone! Saved to {path / 'posts.json'}")
 
 
-async def run_app():
-    me: User = await app.get_me()
-    printc(f"&aLogin success! ID: {me.id} | is_bot: {me.is_bot}")
+async def run_app(client, cfg):
+    me: User = await client.get_me()
+    printc(f"&aLogin success! ID: {me.id}")
     for export in cfg.exports:
-        await process_chat(export["chat_id"], Path(export["path"]), export)
+        await process_chat(export["chat_id"], Path(export["path"]), export, client)
 
 
-cfg: Config
-app: Client
 
 
-def run():
-    global app, cfg
+
+def main():
     parser = argparse.ArgumentParser("Telegram Channel Message to Public API Crawler")
     parser.add_argument("config", help="Config path", nargs="?", default="config.toml")
     args = parser.parse_args()
+
+    from tgc.pyro.config import get_telegram_client, load_config
+    client = get_telegram_client(args.config)
     cfg = load_config(args.config)
+    client.start()
+    asyncio.get_event_loop().run_until_complete(run_app(client, cfg))
 
-    app = Client("Bot", cfg.api_id or 2048, cfg.api_hash or "b18441a1ff607e10a989891a5462e627",
-                 **(dict(bot_token=cfg.bot_token) if cfg.bot_token else {}))
-
-    with app:
-        asyncio.get_event_loop().run_until_complete(run_app())
+if __name__ == "__main__":
+    main()

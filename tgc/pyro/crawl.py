@@ -162,8 +162,8 @@ async def process_chat(chat_id_input, path: Path, export: dict, client):
         # 验证并转换聊天ID
         chat_id = validate_chat_id(chat_id_input)
         printc(f"&aTrying to access chat: {chat_id}")
-        chat: Chat = await client.get_chat(chat_id)
-        printc(f"&aChat obtained. Chat name: {chat.title} | Type: {chat.type} | ID: {chat.id}")
+        chat = await client.get_entity(chat_id)
+        printc(f"&aChat obtained. Chat name: {getattr(chat, 'title', str(chat))} | Type: {getattr(chat, 'type', type(chat))} | ID: {getattr(chat, 'id', '')}")
     except ValueError as e:
         if "Peer id invalid" in str(e):
             printc(f"&cError: Invalid chat ID format: {chat_id_input}")

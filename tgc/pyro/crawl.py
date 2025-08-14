@@ -239,5 +239,8 @@ def main():
     client.start()
     asyncio.get_event_loop().run_until_complete(run_app(client, cfg))
 
+def run():
+    main()
+
 if __name__ == "__main__":
     main()

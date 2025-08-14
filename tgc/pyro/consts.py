@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from telethon.tl.types import MessageMediaPhoto, MessageMediaDocument, MessageMediaContact, MessageMediaPoll, MessageMediaWebPage, MessageMediaGeo, MessageMediaVenue, MessageMediaVideo, MessageMediaAudio, MessageMediaVoice
+from telethon.tl.types import MessageMediaPhoto, MessageMediaDocument, MessageMediaContact, MessageMediaPoll, MessageMediaWebPage, MessageMediaGeo, MessageMediaVenue
 
 MEDIA_TYPE_MAP = {
     MessageMediaPhoto: "photo",
@@ -10,9 +10,6 @@ MEDIA_TYPE_MAP = {
     MessageMediaWebPage: "web_page",
     MessageMediaGeo: "location",
     MessageMediaVenue: "location",
-    MessageMediaVideo: "video_file",
-    MessageMediaAudio: "audio_file",
-    MessageMediaVoice: "voice_message",
 }
 
 HTML = (Path(__file__).parent.parent / "tg-blog.html").read_text()

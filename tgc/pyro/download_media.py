@@ -79,6 +79,18 @@ def guess_ext(client: TelegramClient, mime_type: Optional[str], file_name: Optio
     }
     if mime_type and mime_type in mime_map:
         return mime_map[mime_type]
+    # 优先判断 media 类型
+    import inspect
+    frame = inspect.currentframe()
+    outer_frames = inspect.getouterframes(frame)
+    media_obj = None
+    for f in outer_frames:
+        if 'media' in f.frame.f_locals:
+            media_obj = f.frame.f_locals['media']
+            break
+    # Telegram 图片消息
+    if media_obj and (media_obj.__class__.__name__ == 'MessageMediaPhoto' or media_obj.__class__.__name__ == 'Photo'):
+        return '.jpg'
     if mime_type:
         if mime_type.startswith('image/'):
             return '.jpg'

@@ -2,6 +2,8 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Union
+from telethon.sync import TelegramClient
+from telethon.sessions import StringSession
 import toml
 from hypy_utils import printc
 
@@ -10,8 +12,9 @@ from hypy_utils import printc
 class Config:
     api_id: int
     api_hash: str
-    bot_token: str
-    exports: list[dict]
+    string_session: str
+    bot_token: str = ""
+    exports: list[dict] = None
 
 
 def load_config(path: str = "config.toml") -> Config:
@@ -32,3 +35,8 @@ def load_config(path: str = "config.toml") -> Config:
         exit(3)
 
     return Config(**toml.loads(fp.read_text()))
+
+def get_telegram_client(path: str = "config.toml"):
+    cfg = load_config(path)
+    client = TelegramClient(StringSession(cfg.string_session), cfg.api_id, cfg.api_hash)
+    return client

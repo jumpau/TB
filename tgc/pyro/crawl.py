@@ -205,12 +205,39 @@ async def process_chat(chat_id_input, path: Path, export: dict, client):
         last_id = batch[-1].id if batch else last_id
         print(f"> {len(msgs)} total messages... (last batch up to ID #{last_id})")
 
-    # print(msgs)
-    results = [await process_message(m, path, export, client) for m in msgs]
-    await download_custom_emojis(msgs, results, path, client)
+    # 按 grouped_id 分组
+    from collections import defaultdict
+    msg_groups = defaultdict(list)
+    for m in msgs:
+        gid = getattr(m, 'grouped_id', None)
+        if gid:
+            msg_groups[gid].append(m)
+        else:
+            msg_groups[m.id].append(m)
 
-    # Group messages
-    results = group_msgs(results)
+    results = []
+    for gid, group in msg_groups.items():
+        # 组内收集所有媒体和附言
+        media_files = []
+        caption = None
+        for m in group:
+            if has_media(m):
+                # 下载所有媒体
+                fp, name = await download_media_urlsafe(client, m, directory=path/str(gid), max_file_size=int((export.get('size_limit_mb') or 0) * 1000_000))
+                if fp:
+                    media_files.append(str(fp))
+            # 只取有 text 的那条作为附言
+            if not caption and (getattr(m, 'message', None) or getattr(m, 'text', None)):
+                caption = effective_text(m)
+        # 组结果（不保存为txt，只组合到结构）
+        results.append({
+            'grouped_id': gid,
+            'media_files': media_files,
+            'caption': caption
+        })
+
+    # 兼容原有 emoji 下载和分组
+    await download_custom_emojis(msgs, results, path, client)
 
     write(path / "posts.json", json_stringify(results, indent=2))
     write(path / "index.html", HTML.replace("$$POSTS_DATA$$", json_stringify(results)))

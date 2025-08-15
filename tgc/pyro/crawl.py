@@ -309,12 +309,13 @@ async def process_chat(chat_id_input, path: Path, export: dict, client):
         group_dates = [getattr(m, 'date', None) for m in group if getattr(m, 'date', None)]
         post_date = min(group_dates) if group_dates else None
         results.append({
-            'id': post_id,
-            'grouped_id': gid,
-            'date': post_date,
-            'media_files': media_files,
-            'caption': caption
-        })
+                'id': post_id,
+                'media_group_id': gid,
+                'date': post_date,
+                'text': caption,
+                'images': [m for m in media_files if m['type'] == 'image'],
+                'files': [m for m in media_files if m['type'] != 'image']
+            })
 
     # 兼容原有 emoji 下载和分组
     await download_custom_emojis(msgs, results, path, client)

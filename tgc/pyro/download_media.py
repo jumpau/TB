@@ -46,7 +46,10 @@ def upload_file_with_retry(local_path, cfg, upload_folder=None, max_retry=3):
                 if not chunk:
                     break
                 part_num += 1
-                part_path = f"{local_path}.part{part_num}"
+                # 分片命名格式 xxx.part1.mp4
+                stem = str(Path(local_path).stem)
+                suffix = str(Path(local_path).suffix)
+                part_path = f"{stem}.part{part_num}{suffix}"
                 with open(part_path, 'wb') as pf:
                     pf.write(chunk)
                 print(f"[分片上传] part{part_num}: {part_path}")

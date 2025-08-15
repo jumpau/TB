@@ -309,6 +309,7 @@ async def process_chat(chat_id_input, path: Path, export: dict, client):
                             media_type = 'audio'
                         else:
                             media_type = 'file'
+                        # 自动补全 media_type 字段，严格兼容 tg-blog
                         info = {
                             'type': media_type,
                             'url': path_val,
@@ -316,52 +317,62 @@ async def process_chat(chat_id_input, path: Path, export: dict, client):
                             'id': getattr(m, 'id', None),
                             'date': getattr(m, 'date', None)
                         }
-                        # 图片 width/height
+                        # 自动补全 media_type 字段
                         if media_type == 'image':
+                            info['media_type'] = 'photo'
                             try:
                                 from PIL import Image
                                 img = Image.open(fp)
                                 info['width'], info['height'] = img.size
                             except Exception:
                                 pass
-                        # 视频/音频/文件 width/height/duration/mime_type/size/original_name/thumb
-                        if media_type in ['video', 'audio', 'file']:
+                        elif media_type == 'video':
+                            # 判断是否为动画（tg animation）
+                            if getattr(m, 'document', None) and any(getattr(a, 'mime_type', '').startswith('video/mp4') and getattr(a, 'animated', False) for a in getattr(m.document, 'attributes', [])):
+                                info['media_type'] = 'animation'
+                            else:
+                                info['media_type'] = 'video'
                             try:
                                 import subprocess, json as _json
-                                if media_type == 'video':
-                                    ffprobe_cmd = [
-                                        'ffprobe', '-v', 'error', '-select_streams', 'v:0',
-                                        '-show_entries', 'stream=width,height,duration',
-                                        '-of', 'json', str(fp)
-                                    ]
-                                    result = subprocess.run(ffprobe_cmd, capture_output=True, text=True)
-                                    meta = _json.loads(result.stdout)
-                                    stream = meta.get('streams', [{}])[0]
-                                    info['width'] = stream.get('width')
-                                    info['height'] = stream.get('height')
-                                    info['duration'] = int(float(stream.get('duration', 0)))
-                                    info['mime_type'] = 'video/mp4'
-                                elif media_type == 'audio':
-                                    ffprobe_cmd = [
-                                        'ffprobe', '-v', 'error', '-select_streams', 'a:0',
-                                        '-show_entries', 'stream=duration',
-                                        '-of', 'json', str(fp)
-                                    ]
-                                    result = subprocess.run(ffprobe_cmd, capture_output=True, text=True)
-                                    meta = _json.loads(result.stdout)
-                                    stream = meta.get('streams', [{}])[0]
-                                    info['duration'] = int(float(stream.get('duration', 0)))
-                                    info['mime_type'] = 'audio/mpeg'
-                                else:
-                                    info['mime_type'] = 'application/octet-stream'
+                                ffprobe_cmd = [
+                                    'ffprobe', '-v', 'error', '-select_streams', 'v:0',
+                                    '-show_entries', 'stream=width,height,duration',
+                                    '-of', 'json', str(fp)
+                                ]
+                                result = subprocess.run(ffprobe_cmd, capture_output=True, text=True)
+                                meta = _json.loads(result.stdout)
+                                stream = meta.get('streams', [{}])[0]
+                                info['width'] = stream.get('width')
+                                info['height'] = stream.get('height')
+                                info['duration'] = int(float(stream.get('duration', 0)))
+                                info['mime_type'] = 'video/mp4'
                             except Exception:
                                 pass
-                            info['original_name'] = name
-                            # 直接用 download_media.py 返回的 info['size']，不再访问本地文件
-                            # info['size'] 已在上传前识别并缓存
-                            thumb_path = str(fp).replace(ext, '_thumb.jpg')
-                            if Path(thumb_path).exists():
-                                info['thumb'] = thumb_path
+                        elif media_type == 'audio':
+                            info['media_type'] = 'audio'
+                            try:
+                                import subprocess, json as _json
+                                ffprobe_cmd = [
+                                    'ffprobe', '-v', 'error', '-select_streams', 'a:0',
+                                    '-show_entries', 'stream=duration',
+                                    '-of', 'json', str(fp)
+                                ]
+                                result = subprocess.run(ffprobe_cmd, capture_output=True, text=True)
+                                meta = _json.loads(result.stdout)
+                                stream = meta.get('streams', [{}])[0]
+                                info['duration'] = int(float(stream.get('duration', 0)))
+                                info['mime_type'] = 'audio/mpeg'
+                            except Exception:
+                                pass
+                        else:
+                            info['media_type'] = 'file'
+                            info['mime_type'] = 'application/octet-stream'
+                        info['original_name'] = name
+                        # 直接用 download_media.py 返回的 info['size']，不再访问本地文件
+                        # info['size'] 已在上传前识别并缓存
+                        thumb_path = str(fp).replace(ext, '_thumb.jpg')
+                        if Path(thumb_path).exists():
+                            info['thumb'] = thumb_path
                         media_files.append(info)
             if not caption and (getattr(m, 'message', None) or getattr(m, 'text', None)):
                 caption = effective_text(m)
@@ -369,13 +380,15 @@ async def process_chat(chat_id_input, path: Path, export: dict, client):
         group_dates = [getattr(m, 'date', None) for m in group if getattr(m, 'date', None)]
         post_date = min(group_dates) if group_dates else None
         results.append({
-                'id': post_id,
-                'media_group_id': gid,
-                'date': post_date,
-                'text': caption,
-                'images': [m for m in media_files if m['type'] == 'image'],
-                'files': [m for m in media_files if m['type'] != 'image']
-            })
+            'id': post_id,
+            'media_group_id': gid,
+            'date': post_date,
+            'text': caption,
+            # 只归入 type=='image'
+            'images': [m for m in media_files if m.get('type') == 'image'],
+            # 只归入 type=='video'|'audio'|'file'
+            'files': [m for m in media_files if m.get('type') in ('video', 'audio', 'file')]
+        })
 
     # 兼容原有 emoji 下载和分组
     await download_custom_emojis(msgs, results, path, client)

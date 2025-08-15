@@ -200,15 +200,32 @@ async def process_chat(chat_id_input, path: Path, export: dict, client):
 
     # 持续爬取直到获取到有效消息或达到最大限制
     print("Crawling channel posts...")
+    import json
+    posts_path = path / "posts.json"
+    # 获取已有最大ID
+    max_existing_id = 0
+    if posts_path.exists():
+        with open(posts_path, "r", encoding="utf-8") as f:
+            try:
+                old_posts = json.load(f)
+                if old_posts:
+                    max_existing_id = max(int(post.get('id', 0)) for post in old_posts if post.get('id'))
+            except Exception:
+                old_posts = []
+    else:
+        old_posts = []
+
     msgs = []
-    last_id = 0
-    max_total = 10  # 每次最多执行10个有效贴文
+    last_id = max_existing_id
+    max_total = 20  # 每次最多执行20个有效贴文
     while len(msgs) < max_total:
         batch = await client.get_messages(chat.id, limit=min(100, max_total - len(msgs)), offset_id=last_id)
         batch = [m for m in batch if hasattr(m, 'id') and not getattr(m, 'empty', False)]
         if not batch:
             print("> No more valid messages, we're done.")
             break
+        # 按ID从小到大采集
+        batch = sorted(batch, key=lambda x: x.id)
         msgs += batch
         last_id = batch[-1].id if batch else last_id
         print(f"> {len(msgs)} total messages... (last batch up to ID #{last_id})")
@@ -262,8 +279,12 @@ async def process_chat(chat_id_input, path: Path, export: dict, client):
     # 兼容原有 emoji 下载和分组
     await download_custom_emojis(msgs, results, path, client)
 
-    write(path / "posts.json", json_stringify(results, indent=2))
-    write(path / "index.html", HTML.replace("$$POSTS_DATA$$", json_stringify(results)))
+    # 追加模式：新数据插入最前面
+    new_ids = set(str(post.get('id')) for post in results)
+    old_posts = [post for post in old_posts if str(post.get('id')) not in new_ids]
+    merged_posts = results + old_posts
+    write(posts_path, json_stringify(merged_posts, indent=2))
+    write(path / "index.html", HTML.replace("$$POSTS_DATA$$", json_stringify(merged_posts)))
 
     if 'rss' in export:
         print("Exporting RSS feed...")

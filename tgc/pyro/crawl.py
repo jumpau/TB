@@ -245,9 +245,11 @@ async def process_chat(chat_id_input, path: Path, export: dict, client):
         # 组内收集所有媒体和附言
         media_files = []
         caption = None
+        # 取主消息ID作为文件夹名（最小ID）
+        post_id = min(m.id for m in group if hasattr(m, 'id'))
         for m in group:
             if has_media(m):
-                fp, name = await download_media_urlsafe(client, m, directory=path/str(gid), max_file_size=int((export.get('size_limit_mb') or 0) * 1000_000))
+                fp, name = await download_media_urlsafe(client, m, directory=path/str(post_id), max_file_size=int((export.get('size_limit_mb') or 0) * 1000_000))
                 if fp:
                     info = {
                         'path': str(fp),
@@ -269,7 +271,7 @@ async def process_chat(chat_id_input, path: Path, export: dict, client):
         group_dates = [getattr(m, 'date', None) for m in group if getattr(m, 'date', None)]
         post_date = min(group_dates) if group_dates else None
         results.append({
-            'id': gid,
+            'id': post_id,
             'grouped_id': gid,
             'date': post_date,
             'media_files': media_files,
@@ -283,8 +285,17 @@ async def process_chat(chat_id_input, path: Path, export: dict, client):
     new_ids = set(str(post.get('id')) for post in results)
     old_posts = [post for post in old_posts if str(post.get('id')) not in new_ids]
     merged_posts = results + old_posts
-    # 按id从大到小排序（最新ID在最上面）
-    merged_posts = sorted(merged_posts, key=lambda post: int(post.get('id', 0)), reverse=True)
+    # 按date从大到小排序（最新时间在最上面）
+    from datetime import datetime
+    def parse_date(post):
+        d = post.get('date')
+        if isinstance(d, str):
+            try:
+                return datetime.fromisoformat(d.replace('Z', '+00:00'))
+            except Exception:
+                return datetime.min
+        return d if isinstance(d, datetime) else datetime.min
+    merged_posts = sorted(merged_posts, key=lambda post: parse_date(post), reverse=True)
     write(posts_path, json_stringify(merged_posts, indent=2))
     write(path / "index.html", HTML.replace("$$POSTS_DATA$$", json_stringify(merged_posts)))
 

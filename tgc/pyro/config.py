@@ -15,6 +15,9 @@ class Config:
     string_session: str
     bot_token: str = ""
     exports: list[dict] = None
+    upload_url: str = ""
+    image_base_url: str = ""
+    upload_auth_code: str = ""
 
 
 def load_config(path: str = "config.toml") -> Config:

@@ -22,17 +22,17 @@ def upload_file_with_retry(local_path, cfg, upload_folder=None, max_retry=3):
         return None
     # 自动根据文件类型设置 upload_folder
     ext = Path(local_path).suffix.lower()
-    if not upload_folder:
-        if ext in ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.tif', '.ico']:
-            upload_folder = 'image'
-        elif ext in ['.mp4', '.mkv', '.mov', '.webm', '.avi']:
-            upload_folder = 'video'
-        elif ext in ['.mp3', '.ogg', '.wav', '.aac', '.flac', '.m4a', '.wma']:
-            upload_folder = 'audio'
-        elif ext in ['.pdf', '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx', '.txt', '.html', '.zip', '.rar', '.7z', '.tar', '.bz2', '.gz']:
-            upload_folder = 'doc'
-        else:
-            upload_folder = 'other'
+    # 只根据文件类型自动设置 uploadFolder
+    if ext in ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.tif', '.ico']:
+        upload_folder = 'image'
+    elif ext in ['.mp4', '.mkv', '.mov', '.webm', '.avi']:
+        upload_folder = 'video'
+    elif ext in ['.mp3', '.ogg', '.wav', '.aac', '.flac', '.m4a', '.wma']:
+        upload_folder = 'audio'
+    elif ext in ['.pdf', '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx', '.txt', '.html', '.zip', '.rar', '.7z', '.tar', '.bz2', '.gz']:
+        upload_folder = 'doc'
+    else:
+        upload_folder = 'other'
     for attempt in range(max_retry):
         try:
             print(f"[上传] 尝试第{attempt+1}次：")

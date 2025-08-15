@@ -254,7 +254,8 @@ async def process_chat(chat_id_input, path: Path, export: dict, client):
                     from .config import load_config
                     cfg = load_config()
                     from .download_media import upload_file_with_retry
-                    remote_path = upload_file_with_retry(str(fp), cfg, upload_folder=str(post_id))
+                    remote_path = upload_file_with_retry(str(fp), cfg)
+                    # 兼容分片返回，path 字段为外链或分片列表
                     info = {
                         'path': remote_path if remote_path else str(fp),
                         'id': getattr(m, 'id', None),

@@ -219,7 +219,7 @@ async def process_chat(chat_id_input, path: Path, export: dict, client):
     last_id = max_existing_id
     max_total = 20  # 每次最多执行20个有效贴文
     while len(msgs) < max_total:
-        batch = await client.get_messages(chat.id, limit=min(100, max_total - len(msgs)), offset_id=last_id)
+        batch = await client.get_messages(chat.id, limit=min(100, max_total - len(msgs)), min_id=last_id)
         batch = [m for m in batch if hasattr(m, 'id') and not getattr(m, 'empty', False)]
         if not batch:
             print("> No more valid messages, we're done.")

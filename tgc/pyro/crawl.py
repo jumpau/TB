@@ -227,6 +227,9 @@ async def process_chat(chat_id_input, path: Path, export: dict, client):
         old_posts = []
         print("No existing posts.json found, starting fresh")
     
+    # 保存原始的existing_ids，用于最终去重检查
+    original_existing_ids = existing_ids.copy()
+    
     # 计算起始ID：从最大已有ID开始向上采集新贴文
     start_id = existing_max_id if existing_max_id else 0
     print(f"Starting crawl from ID > {start_id}")
@@ -279,6 +282,9 @@ async def process_chat(chat_id_input, path: Path, export: dict, client):
         return
 
     print(f"Successfully collected {len(msgs)} new messages for processing")
+    if msgs:
+        msg_ids = [m.id for m in msgs]
+        print(f"Message ID range: {min(msg_ids)} - {max(msg_ids)}")
 
     # 按 grouped_id 分组
     from collections import defaultdict
@@ -291,12 +297,16 @@ async def process_chat(chat_id_input, path: Path, export: dict, client):
             msg_groups[m.id].append(m)
 
     results = []
+    print(f"Processing {len(msg_groups)} message groups...")
+    
     for gid, group in msg_groups.items():
         # 组内收集所有媒体和附言
         media_files = []
         caption = None
         # 取主消息ID作为文件夹名（最小ID）
         post_id = min(m.id for m in group if hasattr(m, 'id'))
+        print(f"Processing group {gid} with post_id {post_id}")
+        
         for m in group:
             if has_media(m):
                 fp, name = await download_media_urlsafe(client, m, directory=path/str(post_id), max_file_size=int((export.get('size_limit_mb') or 0) * 1000_000))
@@ -522,13 +532,21 @@ async def process_chat(chat_id_input, path: Path, export: dict, client):
     # 最终去重检查：确保不返回已存在的贴文
     original_count = len(results)
     
-    # 使用已有的existing_ids集合进行去重
+    # 显示即将检查的贴文ID范围
+    if results:
+        result_ids = [int(post.get('id', 0)) for post in results]
+        result_min_id = min(result_ids)
+        result_max_id = max(result_ids)
+        print(f"Checking {original_count} results with ID range: {result_min_id} - {result_max_id}")
+        print(f"Against original existing {len(original_existing_ids)} posts with ID range: {existing_min_id} - {existing_max_id}")
+    
+    # 使用原始的existing_ids集合进行去重
     results_before_dedup = list(results)
     results = []
     
     for post in results_before_dedup:
         post_id = int(post.get('id', 0))
-        if post_id not in existing_ids:
+        if post_id not in original_existing_ids:
             results.append(post)
         else:
             print(f"Final check: Removing duplicate post ID {post_id}")
@@ -540,7 +558,10 @@ async def process_chat(chat_id_input, path: Path, export: dict, client):
     
     if not results:
         print("No new posts to add after final deduplication check.")
-        print(f"All {original_count} processed posts were already in existing range {existing_min_id}-{existing_max_id}")
+        if existing_min_id is not None and existing_max_id is not None:
+            print(f"All {original_count} processed posts were already in existing range {existing_min_id}-{existing_max_id}")
+        else:
+            print(f"All {original_count} processed posts were already processed before")
         return
     
     print(f"Final result: {len(results)} new posts to add (from {original_count} processed)")

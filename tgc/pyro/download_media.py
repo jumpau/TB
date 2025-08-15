@@ -1,3 +1,6 @@
+import requests
+import time
+import os
 import asyncio
 import shutil
 from tempfile import TemporaryDirectory
@@ -8,6 +11,57 @@ from typing import Optional, Dict
 from hypy_utils import ensure_dir, md5
 from hypy_utils.file_utils import escape_filename
 from telethon.errors import FloodWaitError
+
+# 上传本地文件到远程，失败重试3次，返回外链并删除本地文件
+def upload_file_with_retry(local_path, cfg, upload_folder=None, max_retry=3):
+    url = getattr(cfg, 'upload_url', None)
+    auth_code = getattr(cfg, 'upload_auth_code', None)
+    base_url = getattr(cfg, 'image_base_url', None)
+    if not url or not auth_code or not base_url:
+        print(f"[上传] 缺少上传配置，跳过 {local_path}")
+        return None
+    # 自动根据文件类型设置 upload_folder
+    ext = Path(local_path).suffix.lower()
+    if not upload_folder:
+        if ext in ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.tif', '.ico']:
+            upload_folder = 'image'
+        elif ext in ['.mp4', '.mkv', '.mov', '.webm', '.avi']:
+            upload_folder = 'video'
+        elif ext in ['.mp3', '.ogg', '.wav', '.aac', '.flac', '.m4a', '.wma']:
+            upload_folder = 'audio'
+        elif ext in ['.pdf', '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx', '.txt', '.html', '.zip', '.rar', '.7z', '.tar', '.bz2', '.gz']:
+            upload_folder = 'doc'
+        else:
+            upload_folder = 'other'
+    for attempt in range(max_retry):
+        try:
+            files = {'file': open(local_path, 'rb')}
+            data = {
+                'authCode': auth_code,
+                'serverCompress': 'true',
+                'uploadChannel': 'telegram',
+                'autoRetry': 'true',
+                'uploadNameType': 'default',
+                'returnFormat': 'default',
+                'uploadFolder': upload_folder,
+            }
+            resp = requests.post(url, files=files, data=data, timeout=30)
+            files['file'].close()
+            if resp.status_code == 200:
+                j = resp.json()
+                if 'data' in j and j and 'src' in j[0]:
+                    remote_path = base_url + j[0]['src']
+                    os.remove(local_path)
+                    return remote_path
+                else:
+                    print(f"[上传] 响应无 src 字段: {j}")
+            else:
+                print(f"[上传] 状态码 {resp.status_code}，内容: {resp.text}")
+        except Exception as e:
+            print(f"[上传] 第{attempt+1}次失败: {e}")
+            time.sleep(2)
+    print(f"[上传] 文件 {local_path} 上传失败，已重试{max_retry}次")
+    return None
 
 def get_file_name(client: TelegramClient, message: Message) -> str:
     media = has_media(message)

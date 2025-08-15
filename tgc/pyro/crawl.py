@@ -401,44 +401,58 @@ async def process_chat(chat_id_input, path: Path, export: dict, client):
         # 取该组所有消息的最早日期作为贴文日期
         group_dates = [getattr(m, 'date', None) for m in group if getattr(m, 'date', None)]
         post_date = min(group_dates) if group_dates else None
-        # 分离图片和其他文件，扁平化参数结构
+        # 分离图片和其他文件，匹配参考格式
         images = []
         files = []
         
         for m in media_files:
-            # 确保所有参数都在顶层，没有嵌套url对象
             if m.get('media_type') == 'photo':
-                # 图片
+                # 图片格式 - 精简字段，匹配参考格式
                 image_info = {
-                    'date': m.get('date'),
-                    'mime_type': m.get('mime_type', 'image/jpeg'),
-                    'original_name': m.get('original_name'),
-                    'url': m.get('url'),  # 外链字符串
-                    'size': m.get('size'),
                     'width': m.get('width'),
                     'height': m.get('height'),
+                    'date': m.get('date'),
+                    'media_type': 'photo',
+                    'original_name': m.get('original_name'),
+                    'url': m.get('url'),
+                    'size': m.get('size'),
                     'thumb': m.get('thumb')
                 }
                 # 移除None值
                 image_info = {k: v for k, v in image_info.items() if v is not None}
                 images.append(image_info)
             else:
-                # 其他文件（视频、音频、文档等）
-                file_info = {
-                    'date': m.get('date'),
-                    'mime_type': m.get('mime_type', 'application/octet-stream'),
-                    'original_name': m.get('original_name'),
-                    'url': m.get('url'),  # 外链字符串
-                    'size': m.get('size')
-                }
+                # 视频/文件格式 - 匹配参考格式
+                file_info = {}
                 
-                # 添加媒体特定参数（如果存在）
+                # 基础尺寸信息（如果存在）
                 if m.get('width'):
                     file_info['width'] = m['width']
                 if m.get('height'):
                     file_info['height'] = m['height']
                 if m.get('duration'):
                     file_info['duration'] = m['duration']
+                
+                # 视频特定字段
+                if m.get('media_type') == 'video':
+                    file_info['file_name'] = m.get('original_name')  # 使用file_name而不是original_name
+                    file_info['mime_type'] = 'video/mp4'
+                    file_info['supports_streaming'] = True
+                    file_info['media_type'] = 'video_file'  # 匹配参考格式
+                else:
+                    # 其他文件类型
+                    file_info['file_name'] = m.get('original_name')
+                    file_info['mime_type'] = m.get('mime_type', 'application/octet-stream')
+                
+                # 通用字段
+                file_info.update({
+                    'date': m.get('date'),
+                    'original_name': m.get('original_name'),
+                    'url': m.get('url'),
+                    'size': m.get('size')
+                })
+                
+                # 缩略图（仅当存在时）
                 if m.get('thumb'):
                     file_info['thumb'] = m['thumb']
                     

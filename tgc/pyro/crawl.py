@@ -202,33 +202,83 @@ async def process_chat(chat_id_input, path: Path, export: dict, client):
     print("Crawling channel posts...")
     import json
     posts_path = path / "posts.json"
-    # 获取已有最大ID
-    max_existing_id = 0
+    
+    # 获取已有贴文的所有ID集合和范围
+    existing_ids = set()
+    existing_min_id = None
+    existing_max_id = None
+    
     if posts_path.exists():
         with open(posts_path, "r", encoding="utf-8") as f:
             try:
                 old_posts = json.load(f)
                 if old_posts:
-                    max_existing_id = max(int(post.get('id', 0)) for post in old_posts if post.get('id'))
-            except Exception:
+                    existing_ids = set(int(post.get('id', 0)) for post in old_posts if post.get('id'))
+                    if existing_ids:
+                        existing_min_id = min(existing_ids)
+                        existing_max_id = max(existing_ids)
+                        print(f"Found {len(existing_ids)} existing posts, ID range: {existing_min_id} - {existing_max_id}")
+                    else:
+                        print("Found existing posts.json but no valid IDs")
+            except Exception as e:
+                print(f"Warning: Could not load existing posts.json: {e}")
                 old_posts = []
     else:
         old_posts = []
+        print("No existing posts.json found, starting fresh")
+    
+    # 计算起始ID：从最大已有ID开始向上采集新贴文
+    start_id = existing_max_id if existing_max_id else 0
+    print(f"Starting crawl from ID > {start_id}")
 
     msgs = []
-    last_id = max_existing_id
+    last_id = start_id
     max_total = 20  # 每次最多执行20个有效贴文
+    no_new_messages_count = 0  # 连续没有新消息的批次计数
+    max_empty_batches = 50  # 连续50个批次都没有新消息才停止
+    
     while len(msgs) < max_total:
         batch = await client.get_messages(chat.id, limit=min(100, max_total - len(msgs)), min_id=last_id)
         batch = [m for m in batch if hasattr(m, 'id') and not getattr(m, 'empty', False)]
         if not batch:
-            print("> No more valid messages, we're done.")
+            print("> No more messages available, crawl completed.")
             break
-        # 按ID从小到大采集
+            
+        # 按ID从小到大排序
         batch = sorted(batch, key=lambda x: x.id)
-        msgs += batch
-        last_id = batch[-1].id if batch else last_id
-        print(f"> {len(msgs)} total messages... (last batch up to ID #{last_id})")
+        
+        # 过滤掉已存在的贴文，但不停止采集
+        new_batch = []
+        skipped_count = 0
+        for m in batch:
+            if m.id in existing_ids:
+                skipped_count += 1
+                print(f"> Skipping existing post ID {m.id}")
+            else:
+                new_batch.append(m)
+                existing_ids.add(m.id)  # 添加到已存在集合，避免重复处理
+        
+        if new_batch:
+            msgs.extend(new_batch)
+            last_id = new_batch[-1].id
+            no_new_messages_count = 0  # 重置计数
+            print(f"> Added {len(new_batch)} new messages (skipped {skipped_count} existing), total: {len(msgs)} (last ID: {last_id})")
+        else:
+            # 如果这批消息都是已存在的，继续向前推进
+            last_id = batch[-1].id if batch else last_id
+            no_new_messages_count += 1
+            print(f"> No new messages in this batch (skipped {skipped_count} existing), advancing to ID: {last_id} (empty batches: {no_new_messages_count})")
+            
+            # 只有连续多个批次都没有新消息才停止
+            if no_new_messages_count >= max_empty_batches:
+                print(f"> No new messages found in {max_empty_batches} consecutive batches, stopping crawl.")
+                break
+    
+    if not msgs:
+        print("No new messages to process.")
+        return
+
+    print(f"Successfully collected {len(msgs)} new messages for processing")
 
     # 按 grouped_id 分组
     from collections import defaultdict
@@ -468,6 +518,32 @@ async def process_chat(chat_id_input, path: Path, export: dict, client):
             'images': images,  # 图片数组，参数扁平化
             'files': files     # 其他文件数组，参数扁平化
         })
+
+    # 最终去重检查：确保不返回已存在的贴文
+    original_count = len(results)
+    
+    # 使用已有的existing_ids集合进行去重
+    results_before_dedup = list(results)
+    results = []
+    
+    for post in results_before_dedup:
+        post_id = int(post.get('id', 0))
+        if post_id not in existing_ids:
+            results.append(post)
+        else:
+            print(f"Final check: Removing duplicate post ID {post_id}")
+    
+    removed_count = original_count - len(results)
+    
+    if removed_count > 0:
+        print(f"Removed {removed_count} duplicate posts during final check")
+    
+    if not results:
+        print("No new posts to add after final deduplication check.")
+        print(f"All {original_count} processed posts were already in existing range {existing_min_id}-{existing_max_id}")
+        return
+    
+    print(f"Final result: {len(results)} new posts to add (from {original_count} processed)")
 
     # 兼容原有 emoji 下载和分组
     await download_custom_emojis(msgs, results, path, client)

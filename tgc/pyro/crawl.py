@@ -299,26 +299,17 @@ async def process_chat(chat_id_input, path: Path, export: dict, client):
                         for info in part_infos:
                             media_files.append(info)
                     else:
-                        # 判断类型
                         ext = Path(str(path_val)).suffix.lower()
-                        if ext in ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.tif', '.ico']:
-                            media_type = 'image'
-                        elif ext in ['.mp4', '.mkv', '.mov', '.webm', '.avi']:
-                            media_type = 'video'
-                        elif ext in ['.mp3', '.ogg', '.wav', '.aac', '.flac', '.m4a', '.wma']:
-                            media_type = 'audio'
-                        else:
-                            media_type = 'file'
-                        # 自动补全 media_type 字段，严格兼容 tg-blog
+                        # 参数全部平铺，url为外链，type/media_type/mime_type自动补全
                         info = {
-                            'type': media_type,
-                            'url': path_val,
                             'caption': effective_text(m),
                             'id': getattr(m, 'id', None),
-                            'date': getattr(m, 'date', None)
+                            'date': getattr(m, 'date', None),
+                            'original_name': name,
+                            'url': path_val,
                         }
-                        # 自动补全 media_type 字段
-                        if media_type == 'image':
+                        if ext in ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.tif', '.ico']:
+                            info['type'] = 'image'
                             info['media_type'] = 'photo'
                             try:
                                 from PIL import Image
@@ -326,12 +317,13 @@ async def process_chat(chat_id_input, path: Path, export: dict, client):
                                 info['width'], info['height'] = img.size
                             except Exception:
                                 pass
-                        elif media_type == 'video':
-                            # 判断是否为动画（tg animation）
-                            if getattr(m, 'document', None) and any(getattr(a, 'mime_type', '').startswith('video/mp4') and getattr(a, 'animated', False) for a in getattr(m.document, 'attributes', [])):
-                                info['media_type'] = 'animation'
-                            else:
-                                info['media_type'] = 'video'
+                            info['size'] = fp.stat().st_size if hasattr(fp, 'stat') and fp.exists() else None
+                            # 图片 thumb 为自身 url
+                            info['thumb'] = info['url']
+                            info['mime_type'] = 'image/jpeg'
+                        elif ext in ['.mp4', '.mkv', '.mov', '.webm', '.avi']:
+                            info['type'] = 'video'
+                            info['media_type'] = 'video'
                             try:
                                 import subprocess, json as _json
                                 ffprobe_cmd = [
@@ -345,10 +337,14 @@ async def process_chat(chat_id_input, path: Path, export: dict, client):
                                 info['width'] = stream.get('width')
                                 info['height'] = stream.get('height')
                                 info['duration'] = int(float(stream.get('duration', 0)))
-                                info['mime_type'] = 'video/mp4'
                             except Exception:
                                 pass
-                        elif media_type == 'audio':
+                            info['size'] = fp.stat().st_size if hasattr(fp, 'stat') and fp.exists() else None
+                            # 视频 thumb 为空
+                            info['thumb'] = None
+                            info['mime_type'] = 'video/mp4'
+                        elif ext in ['.mp3', '.ogg', '.wav', '.aac', '.flac', '.m4a', '.wma']:
+                            info['type'] = 'audio'
                             info['media_type'] = 'audio'
                             try:
                                 import subprocess, json as _json
@@ -361,18 +357,21 @@ async def process_chat(chat_id_input, path: Path, export: dict, client):
                                 meta = _json.loads(result.stdout)
                                 stream = meta.get('streams', [{}])[0]
                                 info['duration'] = int(float(stream.get('duration', 0)))
-                                info['mime_type'] = 'audio/mpeg'
                             except Exception:
                                 pass
+                            info['size'] = fp.stat().st_size if hasattr(fp, 'stat') and fp.exists() else None
+                            thumb_path = str(fp).replace(ext, '_thumb.jpg')
+                            if Path(thumb_path).exists():
+                                info['thumb'] = thumb_path
+                            info['mime_type'] = 'audio/mpeg'
                         else:
+                            info['type'] = 'file'
                             info['media_type'] = 'file'
                             info['mime_type'] = 'application/octet-stream'
-                        info['original_name'] = name
-                        # 直接用 download_media.py 返回的 info['size']，不再访问本地文件
-                        # info['size'] 已在上传前识别并缓存
-                        thumb_path = str(fp).replace(ext, '_thumb.jpg')
-                        if Path(thumb_path).exists():
-                            info['thumb'] = thumb_path
+                            info['size'] = fp.stat().st_size if hasattr(fp, 'stat') and fp.exists() else None
+                            thumb_path = str(fp).replace(ext, '_thumb.jpg')
+                            if Path(thumb_path).exists():
+                                info['thumb'] = thumb_path
                         media_files.append(info)
             if not caption and (getattr(m, 'message', None) or getattr(m, 'text', None)):
                 caption = effective_text(m)

@@ -37,8 +37,9 @@ def upload_file_with_retry(local_path, cfg, upload_folder=None, max_retry=3):
     chunk_size = 20 * 1024 * 1024  # 20MB
     is_video = ext in ['.mp4', '.mkv', '.mov', '.webm', '.avi']
     if is_video and file_size > chunk_size:
-        # 仅视频分片上传
-        part_links = []
+        # 仅视频分片上传，分片前识别参数
+        part_infos = []
+        import subprocess, json as _json
         with open(local_path, 'rb') as f:
             part_num = 0
             while True:
@@ -46,13 +47,33 @@ def upload_file_with_retry(local_path, cfg, upload_folder=None, max_retry=3):
                 if not chunk:
                     break
                 part_num += 1
-                # 分片命名格式 xxx.part1.mp4
                 stem = str(Path(local_path).stem)
                 suffix = str(Path(local_path).suffix)
                 part_path = f"{stem}.part{part_num}{suffix}"
                 with open(part_path, 'wb') as pf:
                     pf.write(chunk)
-                print(f"[分片上传] part{part_num}: {part_path}")
+                # ffprobe 识别参数
+                info = {'original_name': part_path}
+                try:
+                    ffprobe_cmd = [
+                        'ffprobe', '-v', 'error', '-select_streams', 'v:0',
+                        '-show_entries', 'stream=width,height,duration',
+                        '-of', 'json', part_path
+                    ]
+                    result = subprocess.run(ffprobe_cmd, capture_output=True, text=True)
+                    meta = _json.loads(result.stdout)
+                    stream = meta.get('streams', [{}])[0]
+                    info['width'] = stream.get('width')
+                    info['height'] = stream.get('height')
+                    info['duration'] = int(float(stream.get('duration', 0)))
+                except Exception:
+                    pass
+                info['mime_type'] = 'video/mp4'
+                info['size'] = os.path.getsize(part_path) if os.path.exists(part_path) else None
+                thumb_path = part_path.replace('.mp4', '_thumb.jpg')
+                if os.path.exists(thumb_path):
+                    info['thumb'] = thumb_path
+                # 上传分片
                 for attempt in range(max_retry):
                     try:
                         files = {'file': open(part_path, 'rb')}
@@ -75,12 +96,14 @@ def upload_file_with_retry(local_path, cfg, upload_folder=None, max_retry=3):
                             if isinstance(j, list) and j and 'src' in j[0]:
                                 remote_path = base_url + j[0]['src']
                                 print(f"  分片上传成功，外链: {remote_path}")
-                                part_links.append(remote_path)
+                                info['url'] = remote_path
+                                part_infos.append(info)
                                 break
                             elif isinstance(j, dict) and 'data' in j and j['data'] and 'src' in j['data'][0]:
                                 remote_path = base_url + j['data'][0]['src']
                                 print(f"  分片上传成功，外链: {remote_path}")
-                                part_links.append(remote_path)
+                                info['url'] = remote_path
+                                part_infos.append(info)
                                 break
                             else:
                                 print(f"[分片上传] 响应无 src 字段: {j}")
@@ -91,10 +114,31 @@ def upload_file_with_retry(local_path, cfg, upload_folder=None, max_retry=3):
                         time.sleep(2)
                 os.remove(part_path)
         os.remove(local_path)
-        print(f"[分片上传] 所有分片外链: {part_links}")
-        return part_links if part_links else None
+        print(f"[分片上传] 所有分片参数: {part_infos}")
+        return part_infos if part_infos else None
     else:
-        # 其他类型或小视频，按原逻辑上传
+        # 其他类型或小视频，上传前识别参数
+        info = {'original_name': os.path.basename(local_path)}
+        import subprocess, json as _json
+        try:
+            ffprobe_cmd = [
+                'ffprobe', '-v', 'error', '-select_streams', 'v:0',
+                '-show_entries', 'stream=width,height,duration',
+                '-of', 'json', local_path
+            ]
+            result = subprocess.run(ffprobe_cmd, capture_output=True, text=True)
+            meta = _json.loads(result.stdout)
+            stream = meta.get('streams', [{}])[0]
+            info['width'] = stream.get('width')
+            info['height'] = stream.get('height')
+            info['duration'] = int(float(stream.get('duration', 0)))
+        except Exception:
+            pass
+        info['mime_type'] = 'video/mp4' if ext in ['.mp4', '.mkv', '.mov', '.webm', '.avi'] else None
+        info['size'] = os.path.getsize(local_path) if os.path.exists(local_path) else None
+        thumb_path = local_path.replace('.mp4', '_thumb.jpg')
+        if os.path.exists(thumb_path):
+            info['thumb'] = thumb_path
         for attempt in range(max_retry):
             try:
                 print(f"[上传] 尝试第{attempt+1}次：")
@@ -122,13 +166,15 @@ def upload_file_with_retry(local_path, cfg, upload_folder=None, max_retry=3):
                     if isinstance(j, list) and j and 'src' in j[0]:
                         remote_path = base_url + j[0]['src']
                         print(f"  上传成功，外链: {remote_path}")
+                        info['url'] = remote_path
                         os.remove(local_path)
-                        return remote_path
+                        return info
                     elif isinstance(j, dict) and 'data' in j and j['data'] and 'src' in j['data'][0]:
                         remote_path = base_url + j['data'][0]['src']
                         print(f"  上传成功，外链: {remote_path}")
+                        info['url'] = remote_path
                         os.remove(local_path)
-                        return remote_path
+                        return info
                     else:
                         print(f"[上传] 响应无 src 字段: {j}")
                 else:

@@ -261,13 +261,36 @@ async def process_chat(chat_id_input, path: Path, export: dict, client):
                     if isinstance(path_val, list):
                         # 分片视频每个分片都生成一个 video 类型
                         for idx, url in enumerate(path_val):
-                            media_files.append({
+                            info = {
                                 'type': 'video',
                                 'url': url,
                                 'caption': effective_text(m),
                                 'id': getattr(m, 'id', None),
                                 'date': getattr(m, 'date', None)
-                            })
+                            }
+                            # 视频参数补充
+                            try:
+                                import subprocess, json as _json
+                                ffprobe_cmd = [
+                                    'ffprobe', '-v', 'error', '-select_streams', 'v:0',
+                                    '-show_entries', 'stream=width,height,duration',
+                                    '-of', 'json', str(fp)
+                                ]
+                                result = subprocess.run(ffprobe_cmd, capture_output=True, text=True)
+                                meta = _json.loads(result.stdout)
+                                stream = meta.get('streams', [{}])[0]
+                                info['width'] = stream.get('width')
+                                info['height'] = stream.get('height')
+                                info['duration'] = int(float(stream.get('duration', 0)))
+                            except Exception:
+                                pass
+                            info['mime_type'] = 'video/mp4'
+                            info['original_name'] = name
+                            info['size'] = fp.stat().st_size if hasattr(fp, 'stat') else None
+                            thumb_path = str(fp).replace('.mp4', '_thumb.jpg')
+                            if Path(thumb_path).exists():
+                                info['thumb'] = thumb_path
+                            media_files.append(info)
                     else:
                         # 判断类型
                         ext = Path(str(path_val)).suffix.lower()
@@ -286,7 +309,7 @@ async def process_chat(chat_id_input, path: Path, export: dict, client):
                             'id': getattr(m, 'id', None),
                             'date': getattr(m, 'date', None)
                         }
-                        # 图片 width/height
+                        # 图片 width/height 和 thumb
                         if media_type == 'image':
                             try:
                                 from PIL import Image
@@ -294,15 +317,46 @@ async def process_chat(chat_id_input, path: Path, export: dict, client):
                                 info['width'], info['height'] = img.size
                             except Exception:
                                 pass
+                            # 图片缩略图直接用本体
+                            info['thumb'] = info['url']
+                        # 视频/音频/文件 width/height/duration/mime_type/size/original_name
+                        if media_type in ['video', 'audio', 'file']:
+                            try:
+                                import subprocess, json as _json
+                                if media_type == 'video':
+                                    ffprobe_cmd = [
+                                        'ffprobe', '-v', 'error', '-select_streams', 'v:0',
+                                        '-show_entries', 'stream=width,height,duration',
+                                        '-of', 'json', str(fp)
+                                    ]
+                                    result = subprocess.run(ffprobe_cmd, capture_output=True, text=True)
+                                    meta = _json.loads(result.stdout)
+                                    stream = meta.get('streams', [{}])[0]
+                                    info['width'] = stream.get('width')
+                                    info['height'] = stream.get('height')
+                                    info['duration'] = int(float(stream.get('duration', 0)))
+                                    info['mime_type'] = 'video/mp4'
+                                    # 视频不设置 thumb 字段
+                                    if 'thumb' in info:
+                                        del info['thumb']
+                                elif media_type == 'audio':
+                                    ffprobe_cmd = [
+                                        'ffprobe', '-v', 'error', '-select_streams', 'a:0',
+                                        '-show_entries', 'stream=duration',
+                                        '-of', 'json', str(fp)
+                                    ]
+                                    result = subprocess.run(ffprobe_cmd, capture_output=True, text=True)
+                                    meta = _json.loads(result.stdout)
+                                    stream = meta.get('streams', [{}])[0]
+                                    info['duration'] = int(float(stream.get('duration', 0)))
+                                    info['mime_type'] = 'audio/mpeg'
+                                else:
+                                    info['mime_type'] = 'application/octet-stream'
+                            except Exception:
+                                pass
+                            info['original_name'] = name
+                            info['size'] = fp.stat().st_size if hasattr(fp, 'stat') else None
                         media_files.append(info)
-                    # 图片 width/height
-                    try:
-                        from PIL import Image
-                        img = Image.open(fp)
-                        info['width'], info['height'] = img.size
-                    except Exception:
-                        pass
-                    media_files.append(info)
             if not caption and (getattr(m, 'message', None) or getattr(m, 'text', None)):
                 caption = effective_text(m)
         # 取该组所有消息的最早日期作为贴文日期

@@ -17,12 +17,13 @@ class FeedMeta:
     image_url: str
 
 
-def posts_to_feed(path: Path, meta: FeedMeta):
+def posts_to_feed(path: Path, meta: FeedMeta, posts_data=None):
     """
     Convert posts to RSS feed. This function will create the rss feed in the same directory as posts.json
 
     :param path: Path to the parent directory that contains posts.json
     :param meta: Feed meta info
+    :param posts_data: Optional posts data to use instead of reading from posts.json
     """
     fg = FeedGenerator()
     
@@ -34,8 +35,13 @@ def posts_to_feed(path: Path, meta: FeedMeta):
     fg.language(meta.language)
     fg.image(meta.image_url)
 
-    # Posts
-    posts = json.loads((path / 'posts.json').read_text())
+    # Posts - 使用传入的数据或读取文件
+    if posts_data is not None:
+        posts = posts_data
+        print(f"Using provided posts data with {len(posts)} posts")
+    else:
+        posts = json.loads((path / 'posts.json').read_text())
+        print(f"Reading posts from {path / 'posts.json'} with {len(posts)} posts")
     for post in posts:
         fe = fg.add_entry()
         fe.id(str(post['id']))
@@ -51,3 +57,5 @@ def posts_to_feed(path: Path, meta: FeedMeta):
 
     fg.rss_file(path / 'rss.xml', pretty=True)
     fg.atom_file(path / 'atom.xml', pretty=True)
+    
+    print(f"Generated RSS and Atom feeds with {len(posts)} posts in chronological order")

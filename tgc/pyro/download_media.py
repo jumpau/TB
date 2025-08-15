@@ -86,35 +86,34 @@ def upload_file_with_retry(local_path, cfg, upload_folder=None, max_retry=3):
                             'returnFormat': 'default',
                             'uploadFolder': upload_folder,
                         }
-                        print(f"  上传参数: {data}")
+                        print(f"  上传参数")
                         resp = requests.post(url, files=files, params=data, timeout=60)
                         files['file'].close()
                         print(f"  响应状态码: {resp.status_code}")
-                        print(f"  响应内容: {resp.text}")
+                        print(f"  响应内容")
                         if resp.status_code == 200:
                             j = resp.json()
                             if isinstance(j, list) and j and 'src' in j[0]:
                                 remote_path = base_url + j[0]['src']
-                                print(f"  分片上传成功，外链: {remote_path}")
+                                print(f"  分片上传成功")
                                 info['url'] = remote_path
                                 part_infos.append(info)
                                 break
                             elif isinstance(j, dict) and 'data' in j and j['data'] and 'src' in j['data'][0]:
                                 remote_path = base_url + j['data'][0]['src']
-                                print(f"  分片上传成功，外链: {remote_path}")
                                 info['url'] = remote_path
                                 part_infos.append(info)
                                 break
                             else:
                                 print(f"[分片上传] 响应无 src 字段: {j}")
                         else:
-                            print(f"[分片上传] 状态码 {resp.status_code}，内容: {resp.text}")
+                            print(f"[分片上传] 状态码 {resp.status_code}")
                     except Exception as e:
                         print(f"[分片上传] 第{attempt+1}次失败: {e}")
                         time.sleep(2)
                 os.remove(part_path)
         os.remove(local_path)
-        print(f"[分片上传] 所有分片参数: {part_infos}")
+        print(f"[分片上传]")
         return part_infos if part_infos else None
     else:
         # 其他类型或小视频，上传前识别参数
@@ -142,9 +141,9 @@ def upload_file_with_retry(local_path, cfg, upload_folder=None, max_retry=3):
         for attempt in range(max_retry):
             try:
                 print(f"[上传] 尝试第{attempt+1}次：")
-                print(f"  文件路径: {local_path}")
-                print(f"  上传接口: {url}")
-                print(f"  认证码: {auth_code}")
+                print(f"  文件路径")
+                print(f"  上传接口")
+                print(f"  认证码")
                 print(f"  上传文件夹: {upload_folder}")
                 files = {'file': open(local_path, 'rb')}
                 data = {
@@ -156,29 +155,29 @@ def upload_file_with_retry(local_path, cfg, upload_folder=None, max_retry=3):
                     'returnFormat': 'default',
                     'uploadFolder': upload_folder,
                 }
-                print(f"  上传参数: {data}")
+                print(f"  上传参数")
                 resp = requests.post(url, files=files, params=data, timeout=30)
                 files['file'].close()
                 print(f"  响应状态码: {resp.status_code}")
-                print(f"  响应内容: {resp.text}")
+                print(f"  响应内容")
                 if resp.status_code == 200:
                     j = resp.json()
                     if isinstance(j, list) and j and 'src' in j[0]:
                         remote_path = base_url + j[0]['src']
-                        print(f"  上传成功，外链: {remote_path}")
+                        print(f"  上传成功，外链")
                         info['url'] = remote_path
                         os.remove(local_path)
                         return info
                     elif isinstance(j, dict) and 'data' in j and j['data'] and 'src' in j['data'][0]:
                         remote_path = base_url + j['data'][0]['src']
-                        print(f"  上传成功，外链: {remote_path}")
+                        print(f"  上传成功，外链")
                         info['url'] = remote_path
                         os.remove(local_path)
                         return info
                     else:
                         print(f"[上传] 响应无 src 字段: {j}")
                 else:
-                    print(f"[上传] 状态码 {resp.status_code}，内容: {resp.text}")
+                    print(f"[上传] 状态码 {resp.status_code}")
             except Exception as e:
                 print(f"[上传] 第{attempt+1}次失败: {e}")
                 time.sleep(2)

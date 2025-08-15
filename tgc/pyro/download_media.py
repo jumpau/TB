@@ -34,9 +34,10 @@ def upload_file_with_retry(local_path, cfg, upload_folder=None, max_retry=3):
     else:
         upload_folder = 'other'
     file_size = os.path.getsize(local_path)
-    chunk_size = 20 * 1024 * 1024  # 20MB
+    chunk_size = 20 * 1024 * 1024  # 每片20MB
     is_video = ext in ['.mp4', '.mkv', '.mov', '.webm', '.avi']
-    if is_video and file_size > chunk_size:
+    # 视频大于25MB才分片
+    if is_video and file_size > 25 * 1024 * 1024:
         # 仅视频分片上传，分片前识别参数
         def ffprobe_info(file_path):
             import subprocess, json

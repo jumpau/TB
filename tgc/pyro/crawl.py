@@ -251,8 +251,12 @@ async def process_chat(chat_id_input, path: Path, export: dict, client):
             if has_media(m):
                 fp, name = await download_media_urlsafe(client, m, directory=path/str(post_id), max_file_size=int((export.get('size_limit_mb') or 0) * 1000_000))
                 if fp:
+                    from .config import load_config
+                    cfg = load_config()
+                    from .download_media import upload_file_with_retry
+                    remote_path = upload_file_with_retry(str(fp), cfg, upload_folder=str(post_id))
                     info = {
-                        'path': str(fp),
+                        'path': remote_path if remote_path else str(fp),
                         'id': getattr(m, 'id', None),
                         'date': getattr(m, 'date', None),
                         'caption': effective_text(m),

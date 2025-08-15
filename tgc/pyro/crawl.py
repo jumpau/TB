@@ -172,11 +172,15 @@ async def process_chat(chat_id_input, path: Path, export: dict, client):
     # 验证并转换聊天ID
     chat_id = validate_chat_id(chat_id_input)
     printc(f"&aTrying to access chat: {chat_id}")
-    # 读取历史消息、分组
-    # ...（省略前置代码，保留主循环体修复）...
+    # 读取历史消息
+    # 例如：msgs = await client.get_messages(chat_id, limit=export.get('max_count', 100))
+    max_count = export.get('max_count', 100)
+    msgs = await client.get_messages(chat_id, limit=max_count)
+    # 分组
+    groups = group_msgs(msgs)
     results = []
-    # 假设 group_msgs 已分组，遍历每组
-    for group in group_msgs:  # group_msgs 应为分组后的消息列表
+    # 遍历每组
+    for group in groups:
         media_files = []
         caption = None
         post_id = None

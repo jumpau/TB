@@ -33,49 +33,108 @@ def upload_file_with_retry(local_path, cfg, upload_folder=None, max_retry=3):
         upload_folder = 'doc'
     else:
         upload_folder = 'other'
-    for attempt in range(max_retry):
-        try:
-            print(f"[上传] 尝试第{attempt+1}次：")
-            print(f"  文件路径: {local_path}")
-            print(f"  上传接口: {url}")
-            print(f"  认证码: {auth_code}")
-            print(f"  上传文件夹: {upload_folder}")
-            files = {'file': open(local_path, 'rb')}
-            data = {
-                'authCode': auth_code,
-                'serverCompress': True,
-                'uploadChannel': 'telegram',
-                'autoRetry': True,
-                'uploadNameType': 'origin',
-                'returnFormat': 'default',
-                'uploadFolder': upload_folder,
-            }
-            print(f"  上传参数: {data}")
-            resp = requests.post(url, files=files, params=data, timeout=30)
-            files['file'].close()
-            print(f"  响应状态码: {resp.status_code}")
-            print(f"  响应内容: {resp.text}")
-            if resp.status_code == 200:
-                j = resp.json()
-                if isinstance(j, list) and j and 'src' in j[0]:
-                    remote_path = base_url + j[0]['src']
-                    print(f"  上传成功，外链: {remote_path}")
-                    os.remove(local_path)
-                    return remote_path
-                elif isinstance(j, dict) and 'data' in j and j['data'] and 'src' in j['data'][0]:
-                    remote_path = base_url + j['data'][0]['src']
-                    print(f"  上传成功，外链: {remote_path}")
-                    os.remove(local_path)
-                    return remote_path
+    file_size = os.path.getsize(local_path)
+    chunk_size = 20 * 1024 * 1024  # 20MB
+    is_video = ext in ['.mp4', '.mkv', '.mov', '.webm', '.avi']
+    if is_video and file_size > chunk_size:
+        # 仅视频分片上传
+        part_links = []
+        with open(local_path, 'rb') as f:
+            part_num = 0
+            while True:
+                chunk = f.read(chunk_size)
+                if not chunk:
+                    break
+                part_num += 1
+                part_path = f"{local_path}.part{part_num}"
+                with open(part_path, 'wb') as pf:
+                    pf.write(chunk)
+                print(f"[分片上传] part{part_num}: {part_path}")
+                for attempt in range(max_retry):
+                    try:
+                        files = {'file': open(part_path, 'rb')}
+                        data = {
+                            'authCode': auth_code,
+                            'serverCompress': True,
+                            'uploadChannel': 'telegram',
+                            'autoRetry': True,
+                            'uploadNameType': 'origin',
+                            'returnFormat': 'default',
+                            'uploadFolder': upload_folder,
+                        }
+                        print(f"  上传参数: {data}")
+                        resp = requests.post(url, files=files, params=data, timeout=60)
+                        files['file'].close()
+                        print(f"  响应状态码: {resp.status_code}")
+                        print(f"  响应内容: {resp.text}")
+                        if resp.status_code == 200:
+                            j = resp.json()
+                            if isinstance(j, list) and j and 'src' in j[0]:
+                                remote_path = base_url + j[0]['src']
+                                print(f"  分片上传成功，外链: {remote_path}")
+                                part_links.append(remote_path)
+                                break
+                            elif isinstance(j, dict) and 'data' in j and j['data'] and 'src' in j['data'][0]:
+                                remote_path = base_url + j['data'][0]['src']
+                                print(f"  分片上传成功，外链: {remote_path}")
+                                part_links.append(remote_path)
+                                break
+                            else:
+                                print(f"[分片上传] 响应无 src 字段: {j}")
+                        else:
+                            print(f"[分片上传] 状态码 {resp.status_code}，内容: {resp.text}")
+                    except Exception as e:
+                        print(f"[分片上传] 第{attempt+1}次失败: {e}")
+                        time.sleep(2)
+                os.remove(part_path)
+        os.remove(local_path)
+        print(f"[分片上传] 所有分片外链: {part_links}")
+        return part_links if part_links else None
+    else:
+        # 其他类型或小视频，按原逻辑上传
+        for attempt in range(max_retry):
+            try:
+                print(f"[上传] 尝试第{attempt+1}次：")
+                print(f"  文件路径: {local_path}")
+                print(f"  上传接口: {url}")
+                print(f"  认证码: {auth_code}")
+                print(f"  上传文件夹: {upload_folder}")
+                files = {'file': open(local_path, 'rb')}
+                data = {
+                    'authCode': auth_code,
+                    'serverCompress': True,
+                    'uploadChannel': 'telegram',
+                    'autoRetry': True,
+                    'uploadNameType': 'origin',
+                    'returnFormat': 'default',
+                    'uploadFolder': upload_folder,
+                }
+                print(f"  上传参数: {data}")
+                resp = requests.post(url, files=files, params=data, timeout=30)
+                files['file'].close()
+                print(f"  响应状态码: {resp.status_code}")
+                print(f"  响应内容: {resp.text}")
+                if resp.status_code == 200:
+                    j = resp.json()
+                    if isinstance(j, list) and j and 'src' in j[0]:
+                        remote_path = base_url + j[0]['src']
+                        print(f"  上传成功，外链: {remote_path}")
+                        os.remove(local_path)
+                        return remote_path
+                    elif isinstance(j, dict) and 'data' in j and j['data'] and 'src' in j['data'][0]:
+                        remote_path = base_url + j['data'][0]['src']
+                        print(f"  上传成功，外链: {remote_path}")
+                        os.remove(local_path)
+                        return remote_path
+                    else:
+                        print(f"[上传] 响应无 src 字段: {j}")
                 else:
-                    print(f"[上传] 响应无 src 字段: {j}")
-            else:
-                print(f"[上传] 状态码 {resp.status_code}，内容: {resp.text}")
-        except Exception as e:
-            print(f"[上传] 第{attempt+1}次失败: {e}")
-            time.sleep(2)
-    print(f"[上传] 文件 {local_path} 上传失败，已重试{max_retry}次")
-    return None
+                    print(f"[上传] 状态码 {resp.status_code}，内容: {resp.text}")
+            except Exception as e:
+                print(f"[上传] 第{attempt+1}次失败: {e}")
+                time.sleep(2)
+        print(f"[上传] 文件 {local_path} 上传失败，已重试{max_retry}次")
+        return None
 
 def get_file_name(client: TelegramClient, message: Message) -> str:
     media = has_media(message)

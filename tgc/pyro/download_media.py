@@ -34,47 +34,11 @@ def upload_file_with_retry(local_path, cfg, upload_folder=None, max_retry=3):
     else:
         upload_folder = 'other'
     file_size = os.path.getsize(local_path)
-    chunk_size = 20 * 1024 * 1024  # 每片20MB
+    chunk_size = 20 * 1024 * 1024  # 20MB
     is_video = ext in ['.mp4', '.mkv', '.mov', '.webm', '.avi']
-    # 视频大于25MB才分片
-    if is_video and file_size > 25 * 1024 * 1024:
-        # 仅视频分片上传，分片前识别参数
-        def ffprobe_info(file_path):
-            import subprocess, json
-            try:
-                cmd = [
-                    'ffprobe', '-v', 'error', '-select_streams', 'v:0',
-                    '-show_entries', 'stream=width,height,duration,codec_name,codec_type',
-                    '-show_entries', 'format=size',
-                    '-of', 'json', file_path
-                ]
-                result = subprocess.run(cmd, capture_output=True, text=True)
-                info = json.loads(result.stdout)
-                stream = info.get('streams', [{}])[0]
-                fmt = info.get('format', {})
-                width = int(stream.get('width', 0))
-                height = int(stream.get('height', 0))
-                duration = float(stream.get('duration', 0))
-                mime_type = 'video/mp4'  # 默认
-                if 'codec_name' in stream:
-                    codec = stream['codec_name']
-                    if codec == 'h264':
-                        mime_type = 'video/mp4'
-                    elif codec == 'vp9':
-                        mime_type = 'video/webm'
-                size = int(fmt.get('size', 0))
-                return {
-                    'width': width,
-                    'height': height,
-                    'duration': duration,
-                    'mime_type': mime_type,
-                    'size': size
-                }
-            except Exception as e:
-                print(f'[ffprobe] 获取参数失败: {e}')
-                return {'width': 0, 'height': 0, 'duration': 0, 'mime_type': '', 'size': 0}
-
-        part_results = []
+    if is_video and file_size > chunk_size:
+        # 仅视频分片上传
+        part_links = []
         with open(local_path, 'rb') as f:
             part_num = 0
             while True:
@@ -82,25 +46,13 @@ def upload_file_with_retry(local_path, cfg, upload_folder=None, max_retry=3):
                 if not chunk:
                     break
                 part_num += 1
+                # 分片命名格式 xxx.part1.mp4
                 stem = str(Path(local_path).stem)
                 suffix = str(Path(local_path).suffix)
                 part_path = f"{stem}.part{part_num}{suffix}"
                 with open(part_path, 'wb') as pf:
                     pf.write(chunk)
                 print(f"[分片上传] part{part_num}: {part_path}")
-                # 分片参数识别
-                info = ffprobe_info(part_path)
-                # 先读取分片 size
-                part_size = os.path.getsize(part_path)
-                part_result = {
-                    'original_name': os.path.basename(part_path),
-                    'width': info['width'],
-                    'height': info['height'],
-                    'duration': info['duration'],
-                    'mime_type': info['mime_type'],
-                    'size': part_size,
-                    'url': None
-                }
                 for attempt in range(max_retry):
                     try:
                         files = {'file': open(part_path, 'rb')}
@@ -123,12 +75,12 @@ def upload_file_with_retry(local_path, cfg, upload_folder=None, max_retry=3):
                             if isinstance(j, list) and j and 'src' in j[0]:
                                 remote_path = base_url + j[0]['src']
                                 print(f"  分片上传成功，外链: {remote_path}")
-                                part_result['url'] = remote_path
+                                part_links.append(remote_path)
                                 break
                             elif isinstance(j, dict) and 'data' in j and j['data'] and 'src' in j['data'][0]:
                                 remote_path = base_url + j['data'][0]['src']
                                 print(f"  分片上传成功，外链: {remote_path}")
-                                part_result['url'] = remote_path
+                                part_links.append(remote_path)
                                 break
                             else:
                                 print(f"[分片上传] 响应无 src 字段: {j}")
@@ -138,14 +90,11 @@ def upload_file_with_retry(local_path, cfg, upload_folder=None, max_retry=3):
                         print(f"[分片上传] 第{attempt+1}次失败: {e}")
                         time.sleep(2)
                 os.remove(part_path)
-                part_results.append(part_result)
         os.remove(local_path)
-        print(f"[分片上传] 所有分片结果: {part_results}")
-        return part_results if part_results else None
+        print(f"[分片上传] 所有分片外链: {part_links}")
+        return part_links if part_links else None
     else:
         # 其他类型或小视频，按原逻辑上传
-        # 先读取文件 size
-        file_size = os.path.getsize(local_path)
         for attempt in range(max_retry):
             try:
                 print(f"[上传] 尝试第{attempt+1}次：")
@@ -174,12 +123,12 @@ def upload_file_with_retry(local_path, cfg, upload_folder=None, max_retry=3):
                         remote_path = base_url + j[0]['src']
                         print(f"  上传成功，外链: {remote_path}")
                         os.remove(local_path)
-                        return remote_path, file_size
+                        return remote_path
                     elif isinstance(j, dict) and 'data' in j and j['data'] and 'src' in j['data'][0]:
                         remote_path = base_url + j['data'][0]['src']
                         print(f"  上传成功，外链: {remote_path}")
                         os.remove(local_path)
-                        return remote_path, file_size
+                        return remote_path
                     else:
                         print(f"[上传] 响应无 src 字段: {j}")
                 else:
@@ -188,7 +137,7 @@ def upload_file_with_retry(local_path, cfg, upload_folder=None, max_retry=3):
                 print(f"[上传] 第{attempt+1}次失败: {e}")
                 time.sleep(2)
         print(f"[上传] 文件 {local_path} 上传失败，已重试{max_retry}次")
-        return None, file_size
+        return None
 
 def get_file_name(client: TelegramClient, message: Message) -> str:
     media = has_media(message)

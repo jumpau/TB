@@ -90,13 +90,15 @@ def upload_file_with_retry(local_path, cfg, upload_folder=None, max_retry=3):
                 print(f"[分片上传] part{part_num}: {part_path}")
                 # 分片参数识别
                 info = ffprobe_info(part_path)
+                # 先读取分片 size
+                part_size = os.path.getsize(part_path)
                 part_result = {
                     'original_name': os.path.basename(part_path),
                     'width': info['width'],
                     'height': info['height'],
                     'duration': info['duration'],
                     'mime_type': info['mime_type'],
-                    'size': info['size'],
+                    'size': part_size,
                     'url': None
                 }
                 for attempt in range(max_retry):
@@ -142,6 +144,8 @@ def upload_file_with_retry(local_path, cfg, upload_folder=None, max_retry=3):
         return part_results if part_results else None
     else:
         # 其他类型或小视频，按原逻辑上传
+        # 先读取文件 size
+        file_size = os.path.getsize(local_path)
         for attempt in range(max_retry):
             try:
                 print(f"[上传] 尝试第{attempt+1}次：")
@@ -170,12 +174,12 @@ def upload_file_with_retry(local_path, cfg, upload_folder=None, max_retry=3):
                         remote_path = base_url + j[0]['src']
                         print(f"  上传成功，外链: {remote_path}")
                         os.remove(local_path)
-                        return remote_path
+                        return remote_path, file_size
                     elif isinstance(j, dict) and 'data' in j and j['data'] and 'src' in j['data'][0]:
                         remote_path = base_url + j['data'][0]['src']
                         print(f"  上传成功，外链: {remote_path}")
                         os.remove(local_path)
-                        return remote_path
+                        return remote_path, file_size
                     else:
                         print(f"[上传] 响应无 src 字段: {j}")
                 else:
@@ -184,7 +188,7 @@ def upload_file_with_retry(local_path, cfg, upload_folder=None, max_retry=3):
                 print(f"[上传] 第{attempt+1}次失败: {e}")
                 time.sleep(2)
         print(f"[上传] 文件 {local_path} 上传失败，已重试{max_retry}次")
-        return None
+        return None, file_size
 
 def get_file_name(client: TelegramClient, message: Message) -> str:
     media = has_media(message)

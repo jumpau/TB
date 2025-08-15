@@ -254,76 +254,99 @@ async def process_chat(chat_id_input, path: Path, export: dict, client):
                     from .config import load_config
                     cfg = load_config()
                     from .download_media import upload_file_with_retry
-                    remote_path = upload_file_with_retry(str(fp), cfg)
-                    # 兼容分片返回，path 字段为外链或分片列表
-                    path_val = remote_path if remote_path else str(fp)
-                    # 自动转换为 tg-blog 兼容 media 数组
-                    if isinstance(path_val, list):
-                        # 分片视频每个分片都生成一个 video 类型
-                        # 分片完成后立即识别参数，缓存到分片 info
-                        part_infos = []
-                        import subprocess, json as _json
-                        for part_num, url in enumerate(path_val, 1):
-                            part_name = f"{Path(fp).stem}.part{part_num}{Path(fp).suffix}"
-                            part_path = Path(fp.parent) / part_name
-                            info = {
-                                'type': 'video',
-                                'url': url,
-                                'caption': effective_text(m),
-                                'id': getattr(m, 'id', None),
-                                'date': getattr(m, 'date', None)
-                            }
-                            # ffprobe 识别参数
-                            try:
-                                ffprobe_cmd = [
-                                    'ffprobe', '-v', 'error', '-select_streams', 'v:0',
-                                    '-show_entries', 'stream=width,height,duration',
-                                    '-of', 'json', str(part_path)
-                                ]
-                                result = subprocess.run(ffprobe_cmd, capture_output=True, text=True)
-                                meta = _json.loads(result.stdout)
-                                stream = meta.get('streams', [{}])[0]
-                                info['width'] = stream.get('width')
-                                info['height'] = stream.get('height')
-                                info['duration'] = int(float(stream.get('duration', 0)))
-                            except Exception:
-                                pass
-                            info['mime_type'] = 'video/mp4'
-                            info['original_name'] = part_name
-                            info['size'] = part_path.stat().st_size if part_path.exists() else None
-                            thumb_path = str(part_path).replace('.mp4', '_thumb.jpg')
-                            if Path(thumb_path).exists():
-                                info['thumb'] = thumb_path
-                            part_infos.append(info)
-                        # 上传后直接用缓存参数
-                        for info in part_infos:
-                            media_files.append(info)
-                    else:
-                        ext = Path(str(path_val)).suffix.lower()
-                        # 参数全部平铺，url为外链，type/media_type/mime_type自动补全
+                    upload_result = upload_file_with_retry(str(fp), cfg)
+                    
+                    # 处理上传返回结果，确保结构正确
+                    if isinstance(upload_result, list):
+                        # 分片视频，每个分片都是一个独立的外链
+                        for item in upload_result:
+                            if isinstance(item, dict) and 'url' in item:
+                                # download_media.py 返回的是包含完整参数的 dict
+                                info = {
+                                    'mime_type': item.get('mime_type', 'video/mp4'),
+                                    'date': getattr(m, 'date', None),
+                                    'width': item.get('width'),
+                                    'height': item.get('height'),
+                                    'duration': item.get('duration', 0),
+                                    'media_type': 'video',
+                                    'original_name': item.get('original_name', name),
+                                    'url': item['url'],  # 外链
+                                    'size': item.get('size'),
+                                    'thumb': None  # 视频缩略图为空
+                                }
+                                media_files.append(info)
+                    elif isinstance(upload_result, dict) and 'url' in upload_result:
+                        # 单文件上传，download_media.py 返回包含完整参数的 dict
+                        ext = Path(str(upload_result['url'])).suffix.lower()
+                        
                         info = {
-                            'caption': effective_text(m),
-                            'id': getattr(m, 'id', None),
+                            'date': getattr(m, 'date', None),
+                            'original_name': upload_result.get('original_name', name),
+                            'url': upload_result['url'],  # 外链
+                            'size': upload_result.get('size')
+                        }
+                        
+                        if ext in ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.tif', '.ico']:
+                            # 图片
+                            info.update({
+                                'width': upload_result.get('width'),
+                                'height': upload_result.get('height'),
+                                'media_type': 'photo',
+                                'thumb': upload_result['url'] + '_thumb.jpg' if upload_result.get('thumb') else upload_result['url'],
+                                'mime_type': 'image/jpeg'
+                            })
+                        elif ext in ['.mp4', '.mkv', '.mov', '.webm', '.avi']:
+                            # 视频
+                            info.update({
+                                'mime_type': 'video/mp4',
+                                'width': upload_result.get('width'),
+                                'height': upload_result.get('height'),
+                                'duration': upload_result.get('duration', 0),
+                                'media_type': 'video',
+                                'thumb': None  # 视频缩略图为空
+                            })
+                        elif ext in ['.mp3', '.ogg', '.wav', '.aac', '.flac', '.m4a', '.wma']:
+                            # 音频
+                            info.update({
+                                'mime_type': 'audio/mpeg',
+                                'duration': upload_result.get('duration', 0),
+                                'media_type': 'audio',
+                                'thumb': None
+                            })
+                        else:
+                            # 其他文件
+                            info.update({
+                                'mime_type': 'application/octet-stream',
+                                'media_type': 'file',
+                                'thumb': None
+                            })
+                        
+                        media_files.append(info)
+                    elif upload_result:
+                        # 旧格式兼容：直接是外链字符串
+                        ext = Path(str(upload_result)).suffix.lower()
+                        info = {
                             'date': getattr(m, 'date', None),
                             'original_name': name,
-                            'url': path_val,
+                            'url': upload_result,  # 外链
+                            'size': fp.stat().st_size if fp.exists() else None
                         }
+                        
                         if ext in ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.tif', '.ico']:
-                            info['type'] = 'image'
-                            info['media_type'] = 'photo'
+                            # 图片
                             try:
                                 from PIL import Image
                                 img = Image.open(fp)
                                 info['width'], info['height'] = img.size
                             except Exception:
                                 pass
-                            info['size'] = fp.stat().st_size if hasattr(fp, 'stat') and fp.exists() else None
-                            # 图片 thumb 为自身 url
-                            info['thumb'] = info['url']
-                            info['mime_type'] = 'image/jpeg'
+                            info.update({
+                                'media_type': 'photo',
+                                'thumb': upload_result + '_thumb.jpg',
+                                'mime_type': 'image/jpeg'
+                            })
                         elif ext in ['.mp4', '.mkv', '.mov', '.webm', '.avi']:
-                            info['type'] = 'video'
-                            info['media_type'] = 'video'
+                            # 视频
                             try:
                                 import subprocess, json as _json
                                 ffprobe_cmd = [
@@ -339,13 +362,13 @@ async def process_chat(chat_id_input, path: Path, export: dict, client):
                                 info['duration'] = int(float(stream.get('duration', 0)))
                             except Exception:
                                 pass
-                            info['size'] = fp.stat().st_size if hasattr(fp, 'stat') and fp.exists() else None
-                            # 视频 thumb 为空
-                            info['thumb'] = None
-                            info['mime_type'] = 'video/mp4'
+                            info.update({
+                                'mime_type': 'video/mp4',
+                                'media_type': 'video',
+                                'thumb': None
+                            })
                         elif ext in ['.mp3', '.ogg', '.wav', '.aac', '.flac', '.m4a', '.wma']:
-                            info['type'] = 'audio'
-                            info['media_type'] = 'audio'
+                            # 音频
                             try:
                                 import subprocess, json as _json
                                 ffprobe_cmd = [
@@ -359,34 +382,77 @@ async def process_chat(chat_id_input, path: Path, export: dict, client):
                                 info['duration'] = int(float(stream.get('duration', 0)))
                             except Exception:
                                 pass
-                            info['size'] = fp.stat().st_size if hasattr(fp, 'stat') and fp.exists() else None
-                            thumb_path = str(fp).replace(ext, '_thumb.jpg')
-                            if Path(thumb_path).exists():
-                                info['thumb'] = thumb_path
-                            info['mime_type'] = 'audio/mpeg'
+                            info.update({
+                                'mime_type': 'audio/mpeg',
+                                'media_type': 'audio',
+                                'thumb': None
+                            })
                         else:
-                            info['type'] = 'file'
-                            info['media_type'] = 'file'
-                            info['mime_type'] = 'application/octet-stream'
-                            info['size'] = fp.stat().st_size if hasattr(fp, 'stat') and fp.exists() else None
-                            thumb_path = str(fp).replace(ext, '_thumb.jpg')
-                            if Path(thumb_path).exists():
-                                info['thumb'] = thumb_path
+                            # 其他文件
+                            info.update({
+                                'mime_type': 'application/octet-stream',
+                                'media_type': 'file',
+                                'thumb': None
+                            })
+                        
                         media_files.append(info)
             if not caption and (getattr(m, 'message', None) or getattr(m, 'text', None)):
                 caption = effective_text(m)
         # 取该组所有消息的最早日期作为贴文日期
         group_dates = [getattr(m, 'date', None) for m in group if getattr(m, 'date', None)]
         post_date = min(group_dates) if group_dates else None
+        # 分离图片和其他文件，扁平化参数结构
+        images = []
+        files = []
+        
+        for m in media_files:
+            # 确保所有参数都在顶层，没有嵌套url对象
+            if m.get('media_type') == 'photo':
+                # 图片
+                image_info = {
+                    'date': m.get('date'),
+                    'mime_type': m.get('mime_type', 'image/jpeg'),
+                    'original_name': m.get('original_name'),
+                    'url': m.get('url'),  # 外链字符串
+                    'size': m.get('size'),
+                    'width': m.get('width'),
+                    'height': m.get('height'),
+                    'thumb': m.get('thumb')
+                }
+                # 移除None值
+                image_info = {k: v for k, v in image_info.items() if v is not None}
+                images.append(image_info)
+            else:
+                # 其他文件（视频、音频、文档等）
+                file_info = {
+                    'date': m.get('date'),
+                    'mime_type': m.get('mime_type', 'application/octet-stream'),
+                    'original_name': m.get('original_name'),
+                    'url': m.get('url'),  # 外链字符串
+                    'size': m.get('size')
+                }
+                
+                # 添加媒体特定参数（如果存在）
+                if m.get('width'):
+                    file_info['width'] = m['width']
+                if m.get('height'):
+                    file_info['height'] = m['height']
+                if m.get('duration'):
+                    file_info['duration'] = m['duration']
+                if m.get('thumb'):
+                    file_info['thumb'] = m['thumb']
+                    
+                # 移除None值
+                file_info = {k: v for k, v in file_info.items() if v is not None}
+                files.append(file_info)
+
         results.append({
             'id': post_id,
             'media_group_id': gid,
             'date': post_date,
             'text': caption,
-            # 只归入 type=='image'
-            'images': [m for m in media_files if m.get('type') == 'image'],
-            # 只归入 type=='video'|'audio'|'file'
-            'files': [m for m in media_files if m.get('type') in ('video', 'audio', 'file')]
+            'images': images,  # 图片数组，参数扁平化
+            'files': files     # 其他文件数组，参数扁平化
         })
 
     # 兼容原有 emoji 下载和分组

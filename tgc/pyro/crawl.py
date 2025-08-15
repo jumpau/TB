@@ -169,22 +169,84 @@ async def download_custom_emojis(msgs: list[Message], results: list[dict], path:
 
 
 async def process_chat(chat_id_input, path: Path, export: dict, client):
-    # 验证并转换聊天ID
-    chat_id = validate_chat_id(chat_id_input)
-    printc(f"&aTrying to access chat: {chat_id}")
-    # 读取历史消息
-    # 例如：msgs = await client.get_messages(chat_id, limit=export.get('max_count', 100))
-    max_count = export.get('max_count', 100)
-    msgs = await client.get_messages(chat_id, limit=max_count)
-    # 分组
-    groups = group_msgs(msgs)
+    try:
+        # 验证并转换聊天ID
+        chat_id = validate_chat_id(chat_id_input)
+        printc(f"&aTrying to access chat: {chat_id}")
+        chat = await client.get_entity(chat_id)
+        printc(f"&aChat obtained. Chat name: {getattr(chat, 'title', str(chat))} | Type: {getattr(chat, 'type', type(chat))} | ID: {getattr(chat, 'id', '')}")
+    except ValueError as e:
+        if "Peer id invalid" in str(e):
+            printc(f"&cError: Invalid chat ID format: {chat_id_input}")
+            printc(f"&cPlease check your chat_id in the config file.")
+            printc(f"&cFor channels, use the channel username (without @) or the correct numeric ID.")
+            return
+        else:
+            raise
+    except KeyError as e:
+        if "ID not found" in str(e):
+            printc(f"&cError: Chat ID {chat_id_input} not found.")
+            printc(f"&cPossible reasons:")
+            printc(f"&c  1. The bot doesn't have access to this chat")
+            printc(f"&c  2. The chat doesn't exist or has been deleted")
+            printc(f"&c  3. The chat ID is incorrect")
+            printc(f"&cTry adding the bot to the chat first, or check the chat ID.")
+            return
+        else:
+            raise
+    except Exception as e:
+        printc(f"&cError accessing chat {chat_id_input}: {e}")
+        return
+
+    # 持续爬取直到获取到有效消息或达到最大限制
+    print("Crawling channel posts...")
+    import json
+    posts_path = path / "posts.json"
+    # 获取已有最大ID
+    max_existing_id = 0
+    if posts_path.exists():
+        with open(posts_path, "r", encoding="utf-8") as f:
+            try:
+                old_posts = json.load(f)
+                if old_posts:
+                    max_existing_id = max(int(post.get('id', 0)) for post in old_posts if post.get('id'))
+            except Exception:
+                old_posts = []
+    else:
+        old_posts = []
+
+    msgs = []
+    last_id = max_existing_id
+    max_total = 20  # 每次最多执行20个有效贴文
+    while len(msgs) < max_total:
+        batch = await client.get_messages(chat.id, limit=min(100, max_total - len(msgs)), min_id=last_id)
+        batch = [m for m in batch if hasattr(m, 'id') and not getattr(m, 'empty', False)]
+        if not batch:
+            print("> No more valid messages, we're done.")
+            break
+        # 按ID从小到大采集
+        batch = sorted(batch, key=lambda x: x.id)
+        msgs += batch
+        last_id = batch[-1].id if batch else last_id
+        print(f"> {len(msgs)} total messages... (last batch up to ID #{last_id})")
+
+    # 按 grouped_id 分组
+    from collections import defaultdict
+    msg_groups = defaultdict(list)
+    for m in msgs:
+        gid = getattr(m, 'grouped_id', None)
+        if gid:
+            msg_groups[gid].append(m)
+        else:
+            msg_groups[m.id].append(m)
+
     results = []
-    # 遍历每组
-    for group in groups:
+    for gid, group in msg_groups.items():
+        # 组内收集所有媒体和附言
         media_files = []
         caption = None
-        post_id = None
-        gid = None
+        # 取主消息ID作为文件夹名（最小ID）
+        post_id = min(m.id for m in group if hasattr(m, 'id'))
         for m in group:
             if has_media(m):
                 fp, name = await download_media_urlsafe(client, m, directory=path/str(post_id), max_file_size=int((export.get('size_limit_mb') or 0) * 1000_000))
@@ -193,28 +255,52 @@ async def process_chat(chat_id_input, path: Path, export: dict, client):
                     cfg = load_config()
                     from .download_media import upload_file_with_retry
                     remote_path = upload_file_with_retry(str(fp), cfg)
-                    # 分片上传，remote_path 为 list，每个分片都生成一个 video 类型
-                    if isinstance(remote_path, list):
-                        for part in remote_path:
+                    # 兼容分片返回，path 字段为外链或分片列表
+                    path_val = remote_path if remote_path else str(fp)
+                    # 自动转换为 tg-blog 兼容 media 数组
+                    if isinstance(path_val, list):
+                        # 分片视频每个分片都生成一个 video 类型
+                        # 分片完成后立即识别参数，缓存到分片 info
+                        part_infos = []
+                        import subprocess, json as _json
+                        for part_num, url in enumerate(path_val, 1):
+                            part_name = f"{Path(fp).stem}.part{part_num}{Path(fp).suffix}"
+                            part_path = Path(fp.parent) / part_name
                             info = {
                                 'type': 'video',
-                                'url': part.get('url'),
+                                'url': url,
                                 'caption': effective_text(m),
                                 'id': getattr(m, 'id', None),
-                                'date': getattr(m, 'date', None),
-                                'width': part.get('width'),
-                                'height': part.get('height'),
-                                'duration': part.get('duration'),
-                                'mime_type': part.get('mime_type'),
-                                'original_name': part.get('original_name'),
-                                'size': part.get('size')
+                                'date': getattr(m, 'date', None)
                             }
-                            # 视频不设置 thumb 字段
+                            # ffprobe 识别参数
+                            try:
+                                ffprobe_cmd = [
+                                    'ffprobe', '-v', 'error', '-select_streams', 'v:0',
+                                    '-show_entries', 'stream=width,height,duration',
+                                    '-of', 'json', str(part_path)
+                                ]
+                                result = subprocess.run(ffprobe_cmd, capture_output=True, text=True)
+                                meta = _json.loads(result.stdout)
+                                stream = meta.get('streams', [{}])[0]
+                                info['width'] = stream.get('width')
+                                info['height'] = stream.get('height')
+                                info['duration'] = int(float(stream.get('duration', 0)))
+                            except Exception:
+                                pass
+                            info['mime_type'] = 'video/mp4'
+                            info['original_name'] = part_name
+                            info['size'] = part_path.stat().st_size if part_path.exists() else None
+                            thumb_path = str(part_path).replace('.mp4', '_thumb.jpg')
+                            if Path(thumb_path).exists():
+                                info['thumb'] = thumb_path
+                            part_infos.append(info)
+                        # 上传后直接用缓存参数
+                        for info in part_infos:
                             media_files.append(info)
-                    # 普通上传，remote_path 为 tuple
-                    elif isinstance(remote_path, tuple):
-                        url, file_size = remote_path
-                        ext = Path(str(url)).suffix.lower()
+                    else:
+                        # 判断类型
+                        ext = Path(str(path_val)).suffix.lower()
                         if ext in ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.tif', '.ico']:
                             media_type = 'image'
                         elif ext in ['.mp4', '.mkv', '.mov', '.webm', '.avi']:
@@ -225,12 +311,12 @@ async def process_chat(chat_id_input, path: Path, export: dict, client):
                             media_type = 'file'
                         info = {
                             'type': media_type,
-                            'url': url,
+                            'url': path_val,
                             'caption': effective_text(m),
                             'id': getattr(m, 'id', None),
-                            'date': getattr(m, 'date', None),
-                            'size': file_size
+                            'date': getattr(m, 'date', None)
                         }
+                        # 图片 width/height
                         if media_type == 'image':
                             try:
                                 from PIL import Image
@@ -238,8 +324,7 @@ async def process_chat(chat_id_input, path: Path, export: dict, client):
                                 info['width'], info['height'] = img.size
                             except Exception:
                                 pass
-                            # 图片缩略图直接用本体
-                            info['thumb'] = info['url']
+                        # 视频/音频/文件 width/height/duration/mime_type/size/original_name/thumb
                         if media_type in ['video', 'audio', 'file']:
                             try:
                                 import subprocess, json as _json
@@ -256,9 +341,6 @@ async def process_chat(chat_id_input, path: Path, export: dict, client):
                                     info['height'] = stream.get('height')
                                     info['duration'] = int(float(stream.get('duration', 0)))
                                     info['mime_type'] = 'video/mp4'
-                                    # 视频不设置 thumb 字段
-                                    if 'thumb' in info:
-                                        del info['thumb']
                                 elif media_type == 'audio':
                                     ffprobe_cmd = [
                                         'ffprobe', '-v', 'error', '-select_streams', 'a:0',
@@ -275,24 +357,24 @@ async def process_chat(chat_id_input, path: Path, export: dict, client):
                             except Exception:
                                 pass
                             info['original_name'] = name
+                            info['size'] = fp.stat().st_size if hasattr(fp, 'stat') else None
+                            thumb_path = str(fp).replace(ext, '_thumb.jpg')
+                            if Path(thumb_path).exists():
+                                info['thumb'] = thumb_path
                         media_files.append(info)
             if not caption and (getattr(m, 'message', None) or getattr(m, 'text', None)):
                 caption = effective_text(m)
-            if not post_id:
-                post_id = getattr(m, 'id', None)
-            if not gid:
-                gid = getattr(m, 'grouped_id', None)
         # 取该组所有消息的最早日期作为贴文日期
         group_dates = [getattr(m, 'date', None) for m in group if getattr(m, 'date', None)]
         post_date = min(group_dates) if group_dates else None
         results.append({
-            'id': post_id,
-            'media_group_id': gid,
-            'date': post_date,
-            'text': caption,
-            'images': [m for m in media_files if m['type'] == 'image'],
-            'files': [m for m in media_files if m['type'] != 'image']
-        })
+                'id': post_id,
+                'media_group_id': gid,
+                'date': post_date,
+                'text': caption,
+                'images': [m for m in media_files if m['type'] == 'image'],
+                'files': [m for m in media_files if m['type'] != 'image']
+            })
 
     # 兼容原有 emoji 下载和分组
     await download_custom_emojis(msgs, results, path, client)

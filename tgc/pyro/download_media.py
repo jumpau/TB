@@ -57,8 +57,13 @@ def upload_file_with_retry(local_path, cfg, upload_folder=None, max_retry=3):
             print(f"  响应内容: {resp.text}")
             if resp.status_code == 200:
                 j = resp.json()
-                if 'data' in j and j and 'src' in j[0]:
+                if isinstance(j, list) and j and 'src' in j[0]:
                     remote_path = base_url + j[0]['src']
+                    print(f"  上传成功，外链: {remote_path}")
+                    os.remove(local_path)
+                    return remote_path
+                elif isinstance(j, dict) and 'data' in j and j['data'] and 'src' in j['data'][0]:
+                    remote_path = base_url + j['data'][0]['src']
                     print(f"  上传成功，外链: {remote_path}")
                     os.remove(local_path)
                     return remote_path

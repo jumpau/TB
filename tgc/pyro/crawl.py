@@ -256,12 +256,45 @@ async def process_chat(chat_id_input, path: Path, export: dict, client):
                     from .download_media import upload_file_with_retry
                     remote_path = upload_file_with_retry(str(fp), cfg)
                     # 兼容分片返回，path 字段为外链或分片列表
-                    info = {
-                        'path': remote_path if remote_path else str(fp),
-                        'id': getattr(m, 'id', None),
-                        'date': getattr(m, 'date', None),
-                        'caption': effective_text(m),
-                    }
+                    path_val = remote_path if remote_path else str(fp)
+                    # 自动转换为 tg-blog 兼容 media 数组
+                    if isinstance(path_val, list):
+                        # 分片视频每个分片都生成一个 video 类型
+                        for idx, url in enumerate(path_val):
+                            media_files.append({
+                                'type': 'video',
+                                'url': url,
+                                'caption': effective_text(m),
+                                'id': getattr(m, 'id', None),
+                                'date': getattr(m, 'date', None)
+                            })
+                    else:
+                        # 判断类型
+                        ext = Path(str(path_val)).suffix.lower()
+                        if ext in ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.tif', '.ico']:
+                            media_type = 'image'
+                        elif ext in ['.mp4', '.mkv', '.mov', '.webm', '.avi']:
+                            media_type = 'video'
+                        elif ext in ['.mp3', '.ogg', '.wav', '.aac', '.flac', '.m4a', '.wma']:
+                            media_type = 'audio'
+                        else:
+                            media_type = 'file'
+                        info = {
+                            'type': media_type,
+                            'url': path_val,
+                            'caption': effective_text(m),
+                            'id': getattr(m, 'id', None),
+                            'date': getattr(m, 'date', None)
+                        }
+                        # 图片 width/height
+                        if media_type == 'image':
+                            try:
+                                from PIL import Image
+                                img = Image.open(fp)
+                                info['width'], info['height'] = img.size
+                            except Exception:
+                                pass
+                        media_files.append(info)
                     # 图片 width/height
                     try:
                         from PIL import Image

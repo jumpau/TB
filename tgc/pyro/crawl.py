@@ -238,13 +238,15 @@ async def process_chat(chat_id_input, path: Path, export: dict, client):
     last_id = start_id
     max_total = 20  # 每次最多执行20个有效贴文
     no_new_messages_count = 0  # 连续没有新消息的批次计数
-    max_empty_batches = 50  # 连续50个批次都没有新消息才停止
+    max_empty_batches = 3  # 连续3个批次都没有新消息才停止向上采集
     
+    # 第一阶段：向上采集新贴文（ID > start_id）
+    print("=== Phase 1: Crawling newer posts (向上采集) ===")
     while len(msgs) < max_total:
         batch = await client.get_messages(chat.id, limit=min(100, max_total - len(msgs)), min_id=last_id)
         batch = [m for m in batch if hasattr(m, 'id') and not getattr(m, 'empty', False)]
         if not batch:
-            print("> No more messages available, crawl completed.")
+            print("> No more newer messages available.")
             break
             
         # 按ID从小到大排序
@@ -265,17 +267,66 @@ async def process_chat(chat_id_input, path: Path, export: dict, client):
             msgs.extend(new_batch)
             last_id = new_batch[-1].id
             no_new_messages_count = 0  # 重置计数
-            print(f"> Added {len(new_batch)} new messages (skipped {skipped_count} existing), total: {len(msgs)} (last ID: {last_id})")
+            print(f"> Added {len(new_batch)} newer messages (skipped {skipped_count} existing), total: {len(msgs)} (last ID: {last_id})")
         else:
             # 如果这批消息都是已存在的，继续向前推进
             last_id = batch[-1].id if batch else last_id
             no_new_messages_count += 1
             print(f"> No new messages in this batch (skipped {skipped_count} existing), advancing to ID: {last_id} (empty batches: {no_new_messages_count})")
             
-            # 只有连续多个批次都没有新消息才停止
+            # 只有连续多个批次都没有新消息才停止向上采集
             if no_new_messages_count >= max_empty_batches:
-                print(f"> No new messages found in {max_empty_batches} consecutive batches, stopping crawl.")
+                print(f"> No new messages found in {max_empty_batches} consecutive batches, stopping upward crawl.")
                 break
+    
+    # 第二阶段：如果没有采集满，向下采集历史贴文（ID < start_id）
+    if len(msgs) < max_total and (existing_min_id is None or existing_min_id > 1):
+        remaining_quota = max_total - len(msgs)
+        print(f"=== Phase 2: Crawling older posts (向下采集) - Need {remaining_quota} more ===")
+        
+        # 从已有的最小ID开始向下采集
+        max_id = existing_min_id - 1 if existing_min_id else start_id
+        print(f"Starting downward crawl from ID < {max_id + 1}")
+        
+        downward_no_new_count = 0
+        downward_max_empty = 3
+        
+        while len(msgs) < max_total:
+            # 向下采集：使用max_id限制上限
+            batch = await client.get_messages(chat.id, limit=min(100, max_total - len(msgs)), max_id=max_id)
+            batch = [m for m in batch if hasattr(m, 'id') and not getattr(m, 'empty', False)]
+            if not batch:
+                print("> No more older messages available.")
+                break
+                
+            # 按ID从大到小排序（向下采集）
+            batch = sorted(batch, key=lambda x: x.id, reverse=True)
+            
+            # 过滤掉已存在的贴文
+            new_batch = []
+            skipped_count = 0
+            for m in batch:
+                if m.id in existing_ids:
+                    skipped_count += 1
+                    print(f"> Skipping existing post ID {m.id}")
+                else:
+                    new_batch.append(m)
+                    existing_ids.add(m.id)
+            
+            if new_batch:
+                msgs.extend(new_batch)
+                max_id = min(m.id for m in new_batch) - 1  # 更新max_id为最小ID-1
+                downward_no_new_count = 0
+                print(f"> Added {len(new_batch)} older messages (skipped {skipped_count} existing), total: {len(msgs)} (next max_id: {max_id + 1})")
+            else:
+                # 如果这批都是已存在的，继续向下
+                max_id = min(m.id for m in batch) - 1 if batch else max_id - 100
+                downward_no_new_count += 1
+                print(f"> No new messages in downward batch (skipped {skipped_count} existing), next max_id: {max_id + 1} (empty batches: {downward_no_new_count})")
+                
+                if downward_no_new_count >= downward_max_empty:
+                    print(f"> No new messages found in {downward_max_empty} consecutive downward batches, stopping.")
+                    break
     
     if not msgs:
         print("No new messages to process.")

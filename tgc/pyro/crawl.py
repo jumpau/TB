@@ -357,7 +357,8 @@ async def process_chat(chat_id_input, path: Path, export: dict, client):
                             except Exception:
                                 pass
                             info['original_name'] = name
-                            info['size'] = fp.stat().st_size if hasattr(fp, 'stat') else None
+                            # 直接用 download_media.py 返回的 info['size']，不再访问本地文件
+                            # info['size'] 已在上传前识别并缓存
                             thumb_path = str(fp).replace(ext, '_thumb.jpg')
                             if Path(thumb_path).exists():
                                 info['thumb'] = thumb_path

@@ -283,6 +283,8 @@ async def process_chat(chat_id_input, path: Path, export: dict, client):
     new_ids = set(str(post.get('id')) for post in results)
     old_posts = [post for post in old_posts if str(post.get('id')) not in new_ids]
     merged_posts = results + old_posts
+    # 按id从大到小排序（最新ID在最上面）
+    merged_posts = sorted(merged_posts, key=lambda post: int(post.get('id', 0)), reverse=True)
     write(posts_path, json_stringify(merged_posts, indent=2))
     write(path / "index.html", HTML.replace("$$POSTS_DATA$$", json_stringify(merged_posts)))
 

@@ -35,22 +35,31 @@ def upload_file_with_retry(local_path, cfg, upload_folder=None, max_retry=3):
             upload_folder = 'other'
     for attempt in range(max_retry):
         try:
+            print(f"[上传] 尝试第{attempt+1}次：")
+            print(f"  文件路径: {local_path}")
+            print(f"  上传接口: {url}")
+            print(f"  认证码: {auth_code}")
+            print(f"  上传文件夹: {upload_folder}")
             files = {'file': open(local_path, 'rb')}
             data = {
                 'authCode': auth_code,
-                'serverCompress': 'true',
+                'serverCompress': True,
                 'uploadChannel': 'telegram',
-                'autoRetry': 'true',
-                'uploadNameType': 'default',
+                'autoRetry': True,
+                'uploadNameType': 'origin',
                 'returnFormat': 'default',
                 'uploadFolder': upload_folder,
             }
+            print(f"  上传参数: {data}")
             resp = requests.post(url, files=files, data=data, timeout=30)
             files['file'].close()
+            print(f"  响应状态码: {resp.status_code}")
+            print(f"  响应内容: {resp.text}")
             if resp.status_code == 200:
                 j = resp.json()
                 if 'data' in j and j and 'src' in j[0]:
                     remote_path = base_url + j[0]['src']
+                    print(f"  上传成功，外链: {remote_path}")
                     os.remove(local_path)
                     return remote_path
                 else:

@@ -51,7 +51,7 @@ def upload_file_with_retry(local_path, cfg, upload_folder=None, max_retry=3):
                 'uploadFolder': upload_folder,
             }
             print(f"  上传参数: {data}")
-            resp = requests.post(url, files=files, data=data, timeout=30)
+            resp = requests.post(url, files=files, params=data, timeout=30)
             files['file'].close()
             print(f"  响应状态码: {resp.status_code}")
             print(f"  响应内容: {resp.text}")

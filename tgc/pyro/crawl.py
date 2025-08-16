@@ -10,6 +10,7 @@ from telethon.sessions import StringSession
 from telethon.tl.types import User, Chat, Message, DocumentAttributeSticker
 
 from .config import load_config, Config
+from .consts import HTML
 from .convert import convert_text, convert_media_dict
 from .download_media import download_media, has_media, guess_ext, download_media_urlsafe
 from .grouper import group_msgs
@@ -750,6 +751,8 @@ async def process_chat(chat_id_input, path: Path, export: dict, client):
             merged_posts = sorted(results + old_posts, key=lambda x: int(x.get('id', 0)))
     # 保存所有格式的文件，使用统一的智能插入逻辑
     write(posts_path, json_stringify(merged_posts, indent=2))
+    # 生成 index.html 但不写入数据（使用空数组）
+    write(path / "index.html", HTML.replace("$$POSTS_DATA$$", "[]"))
     
     # 同样的数据和排序逻辑应用到所有输出格式
     if 'rss' in export:
@@ -759,6 +762,7 @@ async def process_chat(chat_id_input, path: Path, export: dict, client):
 
     printc(f"&aDone! Saved {len(merged_posts)} posts to:")
     printc(f"  - {path / 'posts.json'}")
+    printc(f"  - {path / 'index.html'} (without data)")
     if 'rss' in export:
         printc(f"  - {path / 'rss.xml'}")
         printc(f"  - {path / 'atom.xml'}")

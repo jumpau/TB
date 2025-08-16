@@ -383,8 +383,44 @@ async def process_chat(chat_id_input, path: Path, export: dict, client):
                                     'original_name': item.get('original_name', name),
                                     'url': item['url'],  # 外链
                                     'size': item.get('size'),
-                                    'thumb': None  # 视频缩略图为空
+                                    'thumb': None  # 初始设为None
                                 }
+                                
+                                # 为分片视频生成缩略图（只为第一个分片生成）
+                                if len(media_files) == 0:  # 第一个分片
+                                    try:
+                                        import subprocess
+                                        thumb_path = fp.with_suffix('.jpg')
+                                        
+                                        # 使用ffmpeg生成缩略图
+                                        ffmpeg_cmd = [
+                                            'ffmpeg', '-i', str(fp), '-ss', '00:00:01.000', 
+                                            '-vframes', '1', '-y', str(thumb_path)
+                                        ]
+                                        result = subprocess.run(ffmpeg_cmd, capture_output=True, text=True)
+                                        
+                                        if thumb_path.exists() and thumb_path.stat().st_size > 0:
+                                            print(f"Generated thumbnail for video segment {name}: {thumb_path}")
+                                            
+                                            # 上传缩略图
+                                            thumb_upload_result = upload_file_with_retry(str(thumb_path), cfg)
+                                            if isinstance(thumb_upload_result, dict) and 'url' in thumb_upload_result:
+                                                info['thumb'] = thumb_upload_result['url']
+                                                print(f"Uploaded thumbnail: {info['thumb']}")
+                                            elif isinstance(thumb_upload_result, str):
+                                                info['thumb'] = thumb_upload_result
+                                                print(f"Uploaded thumbnail: {info['thumb']}")
+                                            
+                                            # 清理本地缩略图文件
+                                            try:
+                                                thumb_path.unlink()
+                                            except:
+                                                pass
+                                        else:
+                                            print(f"Failed to generate thumbnail for {name}")
+                                    except Exception as e:
+                                        print(f"Error generating thumbnail for {name}: {e}")
+                                
                                 media_files.append(info)
                     elif isinstance(upload_result, dict) and 'url' in upload_result:
                         # 单文件上传，download_media.py 返回包含完整参数的 dict
@@ -414,8 +450,43 @@ async def process_chat(chat_id_input, path: Path, export: dict, client):
                                 'height': upload_result.get('height'),
                                 'duration': upload_result.get('duration', 0),
                                 'media_type': 'video',
-                                'thumb': None  # 视频缩略图为空
+                                'thumb': None  # 先设为None，后续生成缩略图
                             })
+                            
+                            # 生成视频缩略图
+                            try:
+                                import subprocess
+                                thumb_path = fp.with_suffix('.jpg')
+                                
+                                # 使用ffmpeg生成缩略图（取视频1秒处的画面）
+                                ffmpeg_cmd = [
+                                    'ffmpeg', '-i', str(fp), '-ss', '00:00:01.000', 
+                                    '-vframes', '1', '-y', str(thumb_path)
+                                ]
+                                result = subprocess.run(ffmpeg_cmd, capture_output=True, text=True)
+                                
+                                if thumb_path.exists() and thumb_path.stat().st_size > 0:
+                                    print(f"Generated thumbnail for video {name}: {thumb_path}")
+                                    
+                                    # 上传缩略图
+                                    thumb_upload_result = upload_file_with_retry(str(thumb_path), cfg)
+                                    if isinstance(thumb_upload_result, dict) and 'url' in thumb_upload_result:
+                                        info['thumb'] = thumb_upload_result['url']
+                                        print(f"Uploaded thumbnail: {info['thumb']}")
+                                    elif isinstance(thumb_upload_result, str):
+                                        info['thumb'] = thumb_upload_result
+                                        print(f"Uploaded thumbnail: {info['thumb']}")
+                                    
+                                    # 清理本地缩略图文件
+                                    try:
+                                        thumb_path.unlink()
+                                    except:
+                                        pass
+                                else:
+                                    print(f"Failed to generate thumbnail for {name}")
+                            except Exception as e:
+                                print(f"Error generating thumbnail for {name}: {e}")
+                                info['thumb'] = None
                         elif ext in ['.mp3', '.ogg', '.wav', '.aac', '.flac', '.m4a', '.wma']:
                             # 音频
                             info.update({
@@ -478,6 +549,41 @@ async def process_chat(chat_id_input, path: Path, export: dict, client):
                                 'media_type': 'video',
                                 'thumb': None
                             })
+                            
+                            # 生成并上传视频缩略图
+                            try:
+                                import subprocess
+                                thumb_path = fp.with_suffix('.jpg')
+                                
+                                # 使用ffmpeg生成缩略图（取视频1秒处的画面）
+                                ffmpeg_cmd = [
+                                    'ffmpeg', '-i', str(fp), '-ss', '00:00:01.000', 
+                                    '-vframes', '1', '-y', str(thumb_path)
+                                ]
+                                result = subprocess.run(ffmpeg_cmd, capture_output=True, text=True)
+                                
+                                if thumb_path.exists() and thumb_path.stat().st_size > 0:
+                                    print(f"Generated thumbnail for video {name}: {thumb_path}")
+                                    
+                                    # 上传缩略图
+                                    thumb_upload_result = upload_file_with_retry(str(thumb_path), cfg)
+                                    if isinstance(thumb_upload_result, dict) and 'url' in thumb_upload_result:
+                                        info['thumb'] = thumb_upload_result['url']
+                                        print(f"Uploaded thumbnail: {info['thumb']}")
+                                    elif isinstance(thumb_upload_result, str):
+                                        info['thumb'] = thumb_upload_result
+                                        print(f"Uploaded thumbnail: {info['thumb']}")
+                                    
+                                    # 清理本地缩略图文件
+                                    try:
+                                        thumb_path.unlink()
+                                    except:
+                                        pass
+                                else:
+                                    print(f"Failed to generate thumbnail for {name}")
+                            except Exception as e:
+                                print(f"Error generating thumbnail for {name}: {e}")
+                                info['thumb'] = None
                         elif ext in ['.mp3', '.ogg', '.wav', '.aac', '.flac', '.m4a', '.wma']:
                             # 音频
                             try:

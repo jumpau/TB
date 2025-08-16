@@ -1,35 +1,35 @@
-<!-- This is a demo html to load tg-blog -->
-<!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <title>My Blog</title>
-
-  <!-- Import Libraries -->
-  <script src="https://unpkg.com/vue@3"></script>
-  <script src="https://unpkg.com/tg-blog"></script>
-  <link rel="stylesheet" href="https://unpkg.com/tg-blog/dist/style.css">
-
-  <!-- Styles -->
+  <title>天天吃瓜</title>
+  <meta name="keywords" content="天天吃瓜, 天天吃瓜, 吃瓜网, ttcg, 天天吃瓜官方入口, 今日吃瓜, 明星八卦, 网红黑料, 热门黑料, 吃瓜短剧, 吃瓜合集, 吃瓜群众, ttcgapp, ttcgapp.com">
+  <meta name="description" content="天天吃瓜官方入口，提供最新可用访问地址与跳转通道，是吃瓜群众获取天天吃瓜热点爆料、娱乐八卦与黑料合集的首选平台。">
+  <meta name="referrer" content="no-referrer">
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="天天吃瓜">
+  <meta property="og:description" content="天天吃瓜官方入口，提供最新可用访问地址与跳转通道，是吃瓜群众获取天天吃瓜热点爆料、娱乐八卦与黑料合集的首选平台。...">
+  <meta property="og:url" content="https://ttcgapp.com">
+  <meta property="og:image" content="https://ttcgapp.com/public/favicon.ico">
+  <meta property="og:site_name" content="天天吃瓜">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="天天吃瓜">
+  <meta name="twitter:description" content="天天吃瓜是全网更新最快最全的吃瓜网！吃瓜第一入口，天天吃瓜近期热瓜:天天吃瓜官方入口，提供最新可用访问地址与跳转通道，是吃瓜群众获取天天吃瓜热点爆料、娱乐八卦与黑料合集的首选平台。...">
+  <meta name="twitter:image" content="https://ttcgapp.com/public/favicon.ico">
+  <link rel="icon" type="image/x-icon" href="./favicon.ico">
+  <link rel="canonical" href="https://ttcgapp.com/">
+  <base target="_blank">
+  <script src="https://cdn.jsdelivr.net/npm/vue@3"></script>
+  <script src="https://cdn.jsdelivr.net/npm/tg-blog"></script>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/tg-blog/dist/style.css">
   <style>
-      body {
-          font-family: Avenir, Helvetica, Arial, sans-serif;
-      }
+      body { font-family: Avenir, Helvetica, Arial, sans-serif }
   </style>
 </head>
 <body>
-<!-- Template setup -->
-<div id="app">
-  <tg-blog posts-url="./posts.json" :posts-data="posts"></tg-blog>
-</div>
-
-<!-- Vue js setup -->
-<script>
-    Vue.createApp({
-        data() { return {
-            posts: $$POSTS_DATA$$
-        }}
-    }).component("tg-blog", TgBlog.TgBlog).mount('#app')
-</script>
+  <div id="app">
+    <tg-blog posts-url="./posts.json"></tg-blog>
+  </div>
+  <script>
+    Vue.createApp().component("tg-blog", TgBlog.TgBlog).mount('#app')
+  </script>
 </body>
 </html>

@@ -10,7 +10,6 @@ from telethon.sessions import StringSession
 from telethon.tl.types import User, Chat, Message, DocumentAttributeSticker
 
 from .config import load_config, Config
-from .consts import HTML
 from .convert import convert_text, convert_media_dict
 from .download_media import download_media, has_media, guess_ext, download_media_urlsafe
 from .grouper import group_msgs
@@ -723,8 +722,8 @@ async def process_chat(chat_id_input, path: Path, export: dict, client):
     if not results:
         merged_posts = old_posts
     elif not old_posts:
-        # 如果没有旧贴文，直接按ID从大到小排序
-        merged_posts = sorted(results, key=lambda x: int(x.get('id', 0)), reverse=True)
+        # 如果没有旧贴文，直接按ID从小到大排序
+        merged_posts = sorted(results, key=lambda x: int(x.get('id', 0)))
     else:
         # 计算ID范围
         new_min_id = min(int(post.get('id', 0)) for post in results)
@@ -736,22 +735,21 @@ async def process_chat(chat_id_input, path: Path, export: dict, client):
         print(f"现有贴文ID范围: {old_min_id} - {old_max_id}")
         
         if new_min_id > old_max_id:
-            # 新贴文ID都比现有最大ID大 → 插入到最上面，按从小到大排序
+            # 新贴文ID都比现有最大ID大 → 插入到最下面，按从小到大排序
+            print("→ 新贴文插入到底部，按ID从小到大排序")
+            sorted_new = sorted(results, key=lambda x: int(x.get('id', 0)))
+            merged_posts = old_posts + sorted_new
+        elif new_max_id < old_min_id:
+            # 新贴文ID都比现有最小ID小 → 插入到最上面，按从小到大排序
             print("→ 新贴文插入到顶部，按ID从小到大排序")
             sorted_new = sorted(results, key=lambda x: int(x.get('id', 0)))
             merged_posts = sorted_new + old_posts
-        elif new_max_id < old_min_id:
-            # 新贴文ID都比现有最小ID小 → 插入到最下面，按从大到小排序
-            print("→ 新贴文插入到底部，按ID从大到小排序")
-            sorted_new = sorted(results, key=lambda x: int(x.get('id', 0)), reverse=True)
-            merged_posts = old_posts + sorted_new
         else:
-            # 有重叠或混合情况 → 全部合并后按ID从大到小排序
-            print("→ ID范围有重叠，全部重新排序（ID从大到小）")
-            merged_posts = sorted(results + old_posts, key=lambda x: int(x.get('id', 0)), reverse=True)
+            # 有重叠或混合情况 → 全部合并后按ID从小到大排序
+            print("→ ID范围有重叠，全部重新排序（ID从小到大）")
+            merged_posts = sorted(results + old_posts, key=lambda x: int(x.get('id', 0)))
     # 保存所有格式的文件，使用统一的智能插入逻辑
     write(posts_path, json_stringify(merged_posts, indent=2))
-    write(path / "index.html", HTML.replace("$$POSTS_DATA$$", json_stringify(merged_posts)))
     
     # 同样的数据和排序逻辑应用到所有输出格式
     if 'rss' in export:
@@ -761,7 +759,6 @@ async def process_chat(chat_id_input, path: Path, export: dict, client):
 
     printc(f"&aDone! Saved {len(merged_posts)} posts to:")
     printc(f"  - {path / 'posts.json'}")
-    printc(f"  - {path / 'index.html'}")
     if 'rss' in export:
         printc(f"  - {path / 'rss.xml'}")
         printc(f"  - {path / 'atom.xml'}")

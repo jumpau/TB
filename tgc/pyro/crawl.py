@@ -289,7 +289,7 @@ async def process_chat(chat_id_input, path: Path, export: dict, client):
         print(f"Starting downward crawl from ID < {max_id + 1}")
         
         downward_no_new_count = 0
-        downward_max_empty = 3
+        downward_max_empty = 500  # 增加到500次重试，更积极地采集历史贴文
         
         while len(msgs) < max_total:
             # 向下采集：使用max_id限制上限

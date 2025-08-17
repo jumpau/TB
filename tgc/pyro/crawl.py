@@ -758,7 +758,18 @@ async def process_chat(chat_id_input, path: Path, export: dict, client):
     if 'rss' in export:
         print("Exporting RSS feed with same post order...")
         # 确保RSS使用相同的贴文顺序
-        posts_to_feed(path, FeedMeta(**export['rss']), posts_data=merged_posts)
+        rss_meta = FeedMeta(**export['rss'])
+        posts_to_feed(path, rss_meta, posts_data=merged_posts)
+        
+        # 自动从RSS配置生成站点地图
+        print("Auto-generating XML sitemap from RSS configuration...")
+        from tgc.rss.posts_to_feed import posts_to_sitemap_from_rss, generate_robots_txt
+        
+        posts_to_sitemap_from_rss(path, rss_meta, posts_data=merged_posts)
+        
+        # 生成robots.txt
+        sitemap_url = f"{rss_meta.link.rstrip('/')}/sitemap.xml"
+        generate_robots_txt(path, rss_meta.link, sitemap_url)
 
     printc(f"&aDone! Saved {len(merged_posts)} posts to:")
     printc(f"  - {path / 'posts.json'}")
@@ -766,6 +777,8 @@ async def process_chat(chat_id_input, path: Path, export: dict, client):
     if 'rss' in export:
         printc(f"  - {path / 'rss.xml'}")
         printc(f"  - {path / 'atom.xml'}")
+        printc(f"  - {path / 'sitemap.xml'}")
+        printc(f"  - {path / 'robots.txt'}")
 
 
 async def run_app(client, cfg):

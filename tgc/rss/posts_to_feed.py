@@ -54,7 +54,7 @@ def posts_to_feed(path: Path, meta: FeedMeta, posts_data=None):
         fe = fg.add_entry()
         fe.id(str(post['id']))
         fe.title(f"{meta.title} #{post['id']}")
-        fe.link(href=f'{meta.link}?post={post["id"]}')
+        fe.link(href=f'{meta.link}#/?post={post["id"]}')
         fe.updated(parser.parse(post['date']).replace(tzinfo=timezone.utc))
 
         # Escape HTML tags
@@ -122,7 +122,7 @@ def posts_to_sitemap(path: Path, meta: SitemapMeta, posts_data=None):
         url_elem = ET.SubElement(urlset, "url")
         
         # URL
-        post_url = f"{meta.base_url.rstrip('/')}/?post={post['id']}"
+        post_url = f"{meta.base_url.rstrip('/')}/#/?post={post['id']}"
         ET.SubElement(url_elem, "loc").text = post_url
         
         # Last modified (从post的日期)
